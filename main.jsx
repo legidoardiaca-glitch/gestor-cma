@@ -83,6 +83,63 @@ function normalizeRow(row) {
   };
 }
 
+function normalizeSpace(row) {
+  return {
+    id: String(row.id || row.z || row._row || ""),
+    title: String(row.title || row.title_ca || row.name || ""),
+    title_ca: String(row.title_ca || row.title || row.name || ""),
+    title_es: String(row.title_es || ""),
+    title_en: String(row.title_en || ""),
+    body_ca: String(row.body_ca || row.body || ""),
+    adreca: String(row.adreca || ""),
+    barri: String(row.barri || ""),
+    districte: String(row.districte || ""),
+    coordenades: String(row.coordenades || ""),
+    latitud: String(row.latitud || ""),
+    longitud: String(row.longitud || ""),
+    imatge: String(row.imatge || ""),
+    autoria: String(row.autoria || row["autoria imatge"] || ""),
+    importar: normalizeBool(row.importar),
+  };
+}
+
+function buildDerivedSpaces(rows, apiSpaces = []) {
+  const byName = groupBy(rows.filter((row) => row.espai), (row) => row.espai);
+  const apiByName = new Map(apiSpaces.map((space) => [space.title_ca || space.title, space]));
+
+  return Object.entries(byName)
+    .map(([name, items]) => {
+      const api = apiByName.get(name) || {};
+      return {
+        id: api.id || name,
+        title: api.title_ca || api.title || name,
+        title_ca: api.title_ca || api.title || name,
+        title_es: api.title_es || "",
+        title_en: api.title_en || "",
+        body_ca: api.body_ca || "",
+        adreca: api.adreca || "",
+        barri: api.barri || "",
+        districte: api.districte || mostCommon(items.map((i) => i.districte)),
+        coordenades: api.coordenades || "",
+        latitud: api.latitud || "",
+        longitud: api.longitud || "",
+        imatge: api.imatge || "",
+        autoria: api.autoria || "",
+        importar: api.importar || false,
+        items,
+        count: items.length,
+      };
+    })
+    .sort((a, b) => b.count - a.count);
+}
+
+function isValidDateString(value) {
+  if (!value) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value))) return false;
+  const date = new Date(`${value}T12:00:00`);
+  return !Number.isNaN(date.getTime());
+}
+
 function formatDate(dateString) {
   if (!dateString) return "Sense data";
   const date = new Date(`${dateString}T12:00:00`);
@@ -174,7 +231,7 @@ function Badge({ children, tone = "neutral" }) {
   return <span className={`badge ${tone}`}>{children}</span>;
 }
 
-function Shell({ children, view, setView, rows, status }) {
+function Shell({ children, view, setView, rows, status, userName, role, onLogout }) {
   return (
     <main className="app">
       <aside className="sidebar">
@@ -202,6 +259,11 @@ function Shell({ children, view, setView, rows, status }) {
           <p>{status}</p>
           <strong>{rows.length}</strong>
           <span>registres carregats</span>
+          <div className="userBox">
+            <b>{userName}</b>
+            <small>{role}</small>
+            <button onClick={onLogout}>Canviar usuari</button>
+          </div>
         </div>
       </aside>
 
@@ -271,7 +333,7 @@ function ActivityCard({ row, selected, onClick }) {
   );
 }
 
-function Detail({ row }) {
+function Detail({ row, onSearchRelated, onChangeView }) {
   const [tab, setTab] = useState("general");
 
   if (!row) return <div className="panel">Selecciona una activitat.</div>;
@@ -301,6 +363,15 @@ function Detail({ row }) {
 
       <h2>{row.titolWeb || row.titol || "Sense títol"}</h2>
       <p>{row.categoria || "Sense categoria"}</p>
+
+      <div className="quickActions">
+        <button onClick={() => onSearchRelated?.(row.id)}>Veure proposta {row.id}</button>
+        <button onClick={() => onSearchRelated?.(row.idWeb)}>Veure ID WEB {row.idWeb || "—"}</button>
+        <button onClick={() => onSearchRelated?.(row.espai)}>Veure espai</button>
+        <button onClick={() => onSearchRelated?.(row.categoria)}>Veure categoria</button>
+        <button onClick={() => onChangeView?.("propostes")}>Anar a Propostes</button>
+        <button onClick={() => onChangeView?.("espais")}>Anar a Espais</button>
+      </div>
 
       <div className="tabs">
         {[
@@ -408,10 +479,10 @@ function Info({ label, value }) {
   );
 }
 
-function ActivitiesView({ rows }) {
+function ActivitiesView({ rows, setView, selectedActivityId, setSelectedActivityId }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
-  const [selected, setSelected] = useState(rows[0] || null);
+  const [selected, setSelected] = useState(rows.find((row) => String(row._row || row.idIntern) === String(selectedActivityId)) || rows[0] || null);
 
   const filtered = useMemo(() => {
     return rows.filter((row) => {
@@ -437,6 +508,11 @@ function ActivitiesView({ rows }) {
       return matchesQuery && matchesFilter;
     });
   }, [rows, query, filter]);
+
+  useEffect(() => {
+    const found = rows.find((row) => String(row._row || row.idIntern) === String(selectedActivityId));
+    if (found) setSelected(found);
+  }, [selectedActivityId, rows]);
 
   useEffect(() => {
     if (!selected && filtered[0]) setSelected(filtered[0]);
@@ -465,11 +541,20 @@ function ActivitiesView({ rows }) {
               key={`${row.idIntern}-${row._row}`}
               row={row}
               selected={selected?._row === row._row}
-              onClick={() => setSelected(row)}
+              onClick={() => {
+                setSelected(row);
+                setSelectedActivityId(row._row || row.idIntern);
+              }}
             />
           ))}
         </div>
-        <Detail row={selected} />
+        <Detail
+          row={selected}
+          onSearchRelated={(value) => {
+            if (value) setQuery(String(value));
+          }}
+          onChangeView={setView}
+        />
       </div>
     </>
   );
@@ -607,7 +692,7 @@ function mostCommon(values) {
   return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || "Sense categoria";
 }
 
-function CalendarView({ rows }) {
+function CalendarView({ rows, setView, setSelectedActivityId }) {
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState("cronologic");
 
@@ -618,11 +703,19 @@ function CalendarView({ rows }) {
         .toLowerCase()
         .includes(query.toLowerCase())
     )
-    .sort((a, b) => `${a.dataInici} ${a.horaInici}`.localeCompare(`${b.dataInici} ${b.horaInici}`));
+    .sort((a, b) => `${a.dataInici || "9999-99-99"} ${a.horaInici}`.localeCompare(`${b.dataInici || "9999-99-99"} ${b.horaInici}`));
 
-  const dayGroups = groupBy(filtered, (row) => row.dataInici || "Sense data");
-  const weekGroups = groupBy(filtered, (row) => getWeekKey(row.dataInici));
-  const monthGroups = groupBy(filtered, (row) => getMonthKey(row.dataInici));
+  const datedRows = filtered.filter((row) => isValidDateString(row.dataInici));
+  const undatedRows = filtered.filter((row) => !isValidDateString(row.dataInici));
+
+  const dayGroups = groupBy(datedRows, (row) => row.dataInici);
+  const weekGroups = groupBy(datedRows, (row) => getWeekKey(row.dataInici));
+  const monthGroups = groupBy(datedRows, (row) => getMonthKey(row.dataInici));
+
+  function openActivity(row) {
+    setSelectedActivityId(row._row || row.idIntern);
+    setView("activitats");
+  }
 
   return (
     <>
@@ -642,17 +735,25 @@ function CalendarView({ rows }) {
 
       <div className="calendarList">
         {mode === "cronologic" &&
-          Object.entries(dayGroups).map(([date, items]) => <CalendarBlock key={date} title={formatDate(date)} items={items} />)}
+          Object.entries(dayGroups).map(([date, items]) => <CalendarBlock key={date} title={formatDate(date)} items={items} onOpen={openActivity} />)}
         {mode === "setmanal" &&
-          Object.entries(weekGroups).map(([week, items]) => <CalendarBlock key={week} title={`Setmana ${week}`} items={items} />)}
+          Object.entries(weekGroups).map(([week, items]) => <CalendarBlock key={week} title={`Setmana ${week}`} items={items} onOpen={openActivity} />)}
         {mode === "mensual" &&
-          Object.entries(monthGroups).map(([month, items]) => <MonthBlock key={month} month={month} items={items} />)}
+          Object.entries(monthGroups).map(([month, items]) => <MonthBlock key={month} month={month} items={items} onOpen={openActivity} />)}
+
+        {undatedRows.length > 0 && (
+          <CalendarBlock
+            title="Sense data assignada"
+            items={undatedRows}
+            onOpen={openActivity}
+          />
+        )}
       </div>
     </>
   );
 }
 
-function CalendarBlock({ title, items }) {
+function CalendarBlock({ title, items, onOpen }) {
   return (
     <div className="calendarBlock">
       <div className="calendarHeader">
@@ -660,20 +761,20 @@ function CalendarBlock({ title, items }) {
         <Badge>{items.length} passis</Badge>
       </div>
       {items.map((item) => (
-        <div className="calendarItem" key={`${item.idIntern}-${item._row}`}>
+        <button className="calendarItem clickable" key={`${item.idIntern}-${item._row}`} onClick={() => onOpen?.(item)}>
           <strong>{item.horaInici || "--:--"}</strong>
           <div>
-            <h3>{item.idIntern} · {item.titolWeb || item.titol}</h3>
-            <p>{item.espai || "Sense espai"} · {item.districte || "Sense districte"} · {item.categoria}</p>
+            <h3>{item.idIntern || item.idWeb || "Sense ID"} · {item.titolWeb || item.titol || "Sense títol"}</h3>
+            <p>{item.espai || "Sense espai"} · {item.districte || "Sense districte"} · {item.categoria || "Sense categoria"}</p>
           </div>
-        </div>
+        </button>
       ))}
     </div>
   );
 }
 
-function MonthBlock({ month, items }) {
-  const byDay = groupBy(items, (row) => row.dataInici || "Sense data");
+function MonthBlock({ month, items, onOpen }) {
+  const byDay = groupBy(items.filter((row) => isValidDateString(row.dataInici)), (row) => row.dataInici);
   return (
     <div className="calendarBlock">
       <div className="calendarHeader">
@@ -685,9 +786,12 @@ function MonthBlock({ month, items }) {
           <div className="monthCell" key={date}>
             <strong>{date.slice(-2)}</strong>
             <span>{dayItems.length} passis</span>
-            {dayItems.slice(0, 2).map((item) => (
-              <small key={`${item.idIntern}-${item._row}`}>{item.horaInici || "—"} · {item.titolWeb || item.titol}</small>
+            {dayItems.slice(0, 4).map((item) => (
+              <button className="monthMini" key={`${item.idIntern}-${item._row}`} onClick={() => onOpen?.(item)}>
+                {item.horaInici || "—"} · {item.idIntern || item.idWeb || "Sense ID"} · {item.titolWeb || item.titol || "Sense títol"}
+              </button>
             ))}
+            {dayItems.length > 4 && <small>+{dayItems.length - 4} més</small>}
           </div>
         ))}
       </div>
@@ -695,53 +799,179 @@ function MonthBlock({ month, items }) {
   );
 }
 
-function SpacesView({ rows }) {
+function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
   const [query, setQuery] = useState("");
+  const [selectedName, setSelectedName] = useState("");
 
-  const spaces = Object.entries(groupBy(rows.filter((r) => r.espai), (r) => r.espai))
-    .map(([name, items]) => ({
-      name,
-      items,
-      districte: mostCommon(items.map((i) => i.districte)),
-      count: items.length,
-    }))
-    .filter((space) =>
-      [space.name, space.districte].join(" ").toLowerCase().includes(query.toLowerCase())
-    )
-    .sort((a, b) => b.count - a.count);
+  const spaces = useMemo(() => {
+    return buildDerivedSpaces(rows, apiSpaces).filter((space) =>
+      [
+        space.title,
+        space.adreca,
+        space.barri,
+        space.districte,
+        space.coordenades,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(query.toLowerCase())
+    );
+  }, [rows, apiSpaces, query]);
+
+  const selected = spaces.find((space) => space.title === selectedName) || spaces[0] || null;
+
+  function openActivity(row) {
+    setSelectedActivityId(row._row || row.idIntern);
+    setView("activitats");
+  }
 
   return (
     <>
-      <Top title="Espais" subtitle="Espais derivats dels passis. Quan tinguem API ESPAIS, afegirem coordenades i mapa real." />
+      <Top title="Espais" subtitle="Espais vinculats als passis. La fitxa ja està preparada per incorporar API ESPAIS amb adreces, imatges i coordenades." />
       <SearchFilters
         query={query}
         setQuery={setQuery}
         activeFilter="all"
         setActiveFilter={() => {}}
-        placeholder="Buscar espai o districte..."
+        placeholder="Buscar espai, barri, districte o adreça..."
         filters={[{ id: "all", label: "Tots" }]}
       />
 
-      <div className="spaceGrid">
-        {spaces.map((space) => (
-          <div className="panel" key={space.name}>
-            <div className="badges">
-              <Badge>{space.districte}</Badge>
-              <Badge>{space.count} passis</Badge>
-            </div>
-            <h2>{space.name}</h2>
-            <div className="miniRows">
-              {space.items.slice(0, 8).map((item) => (
-                <span key={`${item.idIntern}-${item._row}`}>{item.dataInici} · {item.idIntern} · {item.titolWeb || item.titol}</span>
-              ))}
-              {space.items.length > 8 && <span>+ {space.items.length - 8} més</span>}
-            </div>
-          </div>
-        ))}
+      <div className="split">
+        <div className="list">
+          {spaces.map((space) => (
+            <button
+              key={space.title}
+              className={`activityCard ${selected?.title === space.title ? "selected" : ""}`}
+              onClick={() => setSelectedName(space.title)}
+            >
+              <div className="cardTop">
+                <div>
+                  <div className="badges">
+                    <Badge>{space.districte || "Sense districte"}</Badge>
+                    {space.barri && <Badge>{space.barri}</Badge>}
+                    <Badge>{space.count} passis</Badge>
+                  </div>
+                  <h3>{space.title}</h3>
+                  <p>{space.adreca || "Adreça pendent / no connectada"}</p>
+                </div>
+                <span>›</span>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <SpaceDetail space={selected} onOpenActivity={openActivity} />
       </div>
     </>
   );
 }
+
+function SpaceDetail({ space, onOpenActivity }) {
+  const [tab, setTab] = useState("general");
+
+  if (!space) return <div className="panel">Selecciona un espai.</div>;
+
+  return (
+    <div className="panel detail">
+      <div className="hero">
+        {space.imatge ? (
+          <div className="heroImage">
+            <span>Imatge de l’espai vinculada</span>
+            <a href={space.imatge} target="_blank" rel="noreferrer">Obrir imatge</a>
+          </div>
+        ) : (
+          <span>Sense imatge de l’espai</span>
+        )}
+      </div>
+
+      <div className="badges">
+        <Badge>{space.districte || "Sense districte"}</Badge>
+        {space.barri && <Badge>{space.barri}</Badge>}
+        <Badge>{space.count} passis</Badge>
+        {space.latitud && space.longitud && <Badge tone="success">Coordenades</Badge>}
+      </div>
+
+      <h2>{space.title}</h2>
+      <p>{space.adreca || "Quan connectem API ESPAIS aquí apareixerà l’adreça completa."}</p>
+
+      <div className="tabs">
+        {[
+          ["general", "General"],
+          ["ubicacio", "Ubicació"],
+          ["activitats", "Activitats"],
+          ["web", "Web"],
+        ].map(([id, label]) => (
+          <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "general" && (
+        <div className="tabBody">
+          <div className="infoGrid">
+            <Info label="Nom CAT" value={space.title_ca || space.title} />
+            <Info label="Nom CAST" value={space.title_es || "—"} />
+            <Info label="Nom ANG" value={space.title_en || "—"} />
+            <Info label="Passis vinculats" value={space.count} />
+            <Info label="Barri" value={space.barri || "—"} />
+            <Info label="Districte" value={space.districte || "—"} />
+          </div>
+          <div className="sectionTitle">Descripció</div>
+          <div className="notice">{space.body_ca || "Descripció pendent o encara no connectada des d’API ESPAIS."}</div>
+        </div>
+      )}
+
+      {tab === "ubicacio" && (
+        <div className="tabBody">
+          <div className="infoGrid">
+            <Info label="Adreça" value={space.adreca || "—"} />
+            <Info label="Coordenades" value={space.coordenades || "—"} />
+            <Info label="Latitud" value={space.latitud || "—"} />
+            <Info label="Longitud" value={space.longitud || "—"} />
+          </div>
+          <div className="mapPlaceholder">
+            {space.latitud && space.longitud ? (
+              <span>{space.latitud}, {space.longitud}</span>
+            ) : (
+              <span>Mapa pendent: falta connectar latitud i longitud d’API ESPAIS.</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {tab === "activitats" && (
+        <div className="tabBody">
+          <div className="miniRows clickableRows">
+            {space.items.map((item) => (
+              <button key={`${item.idIntern}-${item._row}`} onClick={() => onOpenActivity?.(item)}>
+                {item.dataInici || "Sense data"} · {item.idIntern || item.idWeb || "Sense ID"} · {item.titolWeb || item.titol || "Sense títol"}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {tab === "web" && (
+        <div className="tabBody">
+          <div className="infoGrid">
+            <Info label="Imatge" value={space.imatge ? "Assignada" : "Falta imatge"} />
+            <Info label="Autoria" value={space.autoria || "—"} />
+            <Info label="Importar" value={space.importar ? "Sí" : "No / pendent"} />
+            <Info label="ID espai" value={space.id || "—"} />
+          </div>
+          {space.imatge && (
+            <a className="externalLink" href={space.imatge} target="_blank" rel="noreferrer">
+              Obrir imatge de l’espai
+            </a>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 function DashboardView({ rows }) {
   return (
@@ -782,8 +1012,64 @@ function Chart({ title, data }) {
   );
 }
 
+
+function LoginScreen({ userName, setUserName, role, setRole, onEnter }) {
+  return (
+    <div className="loginScreen">
+      <div className="loginCard">
+        <div className="brand loginBrand">
+          <div>BARCELONA</div>
+          <div>CAPITAL MUNDIAL</div>
+          <div>DE L'ARQUITECTURA</div>
+        </div>
+        <p className="eyebrow">Gestor de programació</p>
+        <h1>Accés al visor</h1>
+        <p>Identificació interna per adaptar la lectura de la plataforma.</p>
+
+        <label>Nom</label>
+        <input
+          value={userName}
+          onChange={(e) => setUserName(e.target.value)}
+          placeholder="Nom i cognoms"
+        />
+
+        <label>Perfil</label>
+        <div className="roleGrid">
+          {[
+            ["direccio", "Direcció"],
+            ["editor", "Editor/a"],
+            ["cap_projecte", "Cap projecte"],
+            ["admin", "Admin"],
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              className={role === id ? "active" : ""}
+              onClick={() => setRole(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <button className="enterButton" disabled={!userName.trim()} onClick={onEnter}>
+          Entrar a la plataforma
+        </button>
+
+        <div className="loginNote">
+          De moment és una acreditació simple de visor. Més endavant es pot substituir per login real amb Google.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
+  const [authenticated, setAuthenticated] = useState(false);
+  const [userName, setUserName] = useState("");
+  const [role, setRole] = useState("direccio");
   const [rows, setRows] = useState([]);
+  const [apiSpaces, setApiSpaces] = useState([]);
+  const [selectedActivityId, setSelectedActivityId] = useState("");
   const [view, setView] = useState("dashboard");
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState("Carregant API...");
@@ -793,7 +1079,10 @@ function App() {
     loadJsonp(API_URL)
       .then((data) => {
         const passis = Array.isArray(data.passis) ? data.passis.map(normalizeRow) : [];
+        const espais = Array.isArray(data.espais) ? data.espais.map(normalizeSpace) : [];
         setRows(passis);
+        setApiSpaces(espais);
+        if (passis[0]) setSelectedActivityId(passis[0]._row || passis[0].idIntern);
         setStatus("Dades reals");
         setLoading(false);
       })
@@ -804,17 +1093,60 @@ function App() {
       });
   }, []);
 
+  if (!authenticated) {
+    return (
+      <>
+        <LoginScreen
+          userName={userName}
+          setUserName={setUserName}
+          role={role}
+          setRole={setRole}
+          onEnter={() => setAuthenticated(true)}
+        />
+        <style>{css}</style>
+      </>
+    );
+  }
+
   if (loading) return <div className="screen">Carregant dades reals...</div>;
 
   return (
     <>
-      <Shell view={view} setView={setView} rows={rows} status={status}>
+      <Shell
+        view={view}
+        setView={setView}
+        rows={rows}
+        status={status}
+        userName={userName}
+        role={role}
+        onLogout={() => setAuthenticated(false)}
+      >
         {error && <div className="notice">⚠ {error}</div>}
         {view === "dashboard" && <DashboardView rows={rows} />}
-        {view === "activitats" && <ActivitiesView rows={rows} />}
+        {view === "activitats" && (
+          <ActivitiesView
+            rows={rows}
+            setView={setView}
+            selectedActivityId={selectedActivityId}
+            setSelectedActivityId={setSelectedActivityId}
+          />
+        )}
         {view === "propostes" && <ProposalsView rows={rows} />}
-        {view === "calendari" && <CalendarView rows={rows} />}
-        {view === "espais" && <SpacesView rows={rows} />}
+        {view === "calendari" && (
+          <CalendarView
+            rows={rows}
+            setView={setView}
+            setSelectedActivityId={setSelectedActivityId}
+          />
+        )}
+        {view === "espais" && (
+          <SpacesView
+            rows={rows}
+            apiSpaces={apiSpaces}
+            setView={setView}
+            setSelectedActivityId={setSelectedActivityId}
+          />
+        )}
       </Shell>
       <style>{css}</style>
     </>
@@ -910,6 +1242,35 @@ p { color: #666; }
 .checkList span { border-radius: 14px; padding: 11px 12px; font-weight: 700; }
 .checkList .good { background: #eaf7ee; color: #146c2e; }
 .checkList .bad { background: #fff0d6; color: #8a5700; }
+
+
+.loginScreen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 30px; background: #f7f7f5; }
+.loginCard { width: min(560px, 100%); background: #fff; border: 1px solid #ddd; border-radius: 32px; padding: 34px; box-shadow: 0 10px 35px rgba(0,0,0,.05); }
+.loginBrand { margin-bottom: 28px; }
+.loginCard label { display: block; font-weight: 800; margin: 18px 0 8px; }
+.loginCard input { width: 100%; border: 1px solid #ddd; border-radius: 16px; padding: 14px 16px; background: #fafafa; }
+.roleGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.roleGrid button { border: 1px solid #ddd; background: #fff; border-radius: 16px; padding: 14px; font-weight: 800; }
+.roleGrid button.active { background: #111; color: #fff; border-color: #111; }
+.enterButton { width: 100%; border: 0; background: #111; color: #fff; border-radius: 18px; padding: 16px; margin-top: 24px; font-weight: 900; }
+.enterButton:disabled { opacity: .35; cursor: not-allowed; }
+.loginNote { background: #f3f3f1; border-radius: 18px; padding: 14px; margin-top: 18px; color: #666; font-size: 14px; }
+.userBox { border-top: 1px solid #ddd; margin-top: 14px; padding-top: 14px; display: grid; gap: 4px; }
+.userBox b { font-size: 15px; }
+.userBox small { color: #777; }
+.userBox button { margin-top: 8px; border: 1px solid #ddd; background: #fff; border-radius: 12px; padding: 9px 10px; font-weight: 800; }
+.quickActions { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 4px; }
+.quickActions button { border: 1px solid #ddd; background: #fff; border-radius: 999px; padding: 8px 11px; font-size: 12px; font-weight: 800; }
+.quickActions button:hover { background: #111; color: #fff; border-color: #111; }
+
+
+.clickable { width: 100%; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.clickable:hover { background: #f5f5f3; }
+.monthMini { display: block; width: 100%; border: 0; background: #fff; border-radius: 10px; padding: 6px 7px; margin-top: 5px; text-align: left; font-size: 11px; line-height: 1.25; white-space: normal; }
+.monthMini:hover { background: #111; color: #fff; }
+.mapPlaceholder { height: 230px; border-radius: 22px; border: 1px dashed #cfcfca; background: linear-gradient(135deg, #f2f2ef, #fff); display: flex; align-items: center; justify-content: center; text-align: center; color: #777; padding: 20px; margin-top: 16px; }
+.clickableRows button { border: 1px solid #eee; background: #fff; border-radius: 12px; padding: 10px 11px; text-align: left; color: #444; font-weight: 650; }
+.clickableRows button:hover { background: #111; color: #fff; border-color: #111; }
 
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
