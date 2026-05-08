@@ -272,6 +272,8 @@ function ActivityCard({ row, selected, onClick }) {
 }
 
 function Detail({ row }) {
+  const [tab, setTab] = useState("general");
+
   if (!row) return <div className="panel">Selecciona una activitat.</div>;
 
   const errors = getErrors(row);
@@ -279,37 +281,118 @@ function Detail({ row }) {
   return (
     <div className="panel detail">
       <div className="hero">
-        {row.imatge ? <span>Imatge vinculada</span> : <span>Sense imatge principal</span>}
+        {row.imatge ? (
+          <div className="heroImage">
+            <span>Imatge principal vinculada</span>
+            <a href={row.imatge} target="_blank" rel="noreferrer">Obrir imatge</a>
+          </div>
+        ) : (
+          <span>Sense imatge principal</span>
+        )}
       </div>
 
       <div className="badges">
         <Badge>{row.idIntern}</Badge>
-        <Badge>{row.idWeb}</Badge>
+        <Badge>{row.idWeb || "Sense ID WEB"}</Badge>
+        <Badge>{row.encarregada || "Sense encarregada"}</Badge>
         <Badge tone={row.importar ? "success" : "neutral"}>{row.importar ? "Importar" : "No importar"}</Badge>
+        {errors.length > 0 && <Badge tone="warning">{errors.length} avisos</Badge>}
       </div>
 
-      <h2>{row.titolWeb || row.titol}</h2>
-      <p>{row.categoria}</p>
+      <h2>{row.titolWeb || row.titol || "Sense títol"}</h2>
+      <p>{row.categoria || "Sense categoria"}</p>
 
-      <div className="infoGrid">
-        <Info label="ID proposta" value={row.id} />
-        <Info label="Encarregada" value={row.encarregada} />
-        <Info label="Data inici" value={`${row.dataInici || "—"} ${row.horaInici || ""}`} />
-        <Info label="Data final" value={`${row.dataFinal || "—"} ${row.horaFinal || ""}`} />
-        <Info label="Espai" value={row.espai || "—"} />
-        <Info label="Districte" value={row.districte || "—"} />
-        <Info label="Agrupador" value={row.agrupador || "—"} />
-        <Info label="Modalitat" value={row.modalitat || "—"} />
+      <div className="tabs">
+        {[
+          ["general", "General"],
+          ["web", "Web"],
+          ["produccio", "Producció"],
+          ["errors", "Errors"],
+        ].map(([id, label]) => (
+          <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
+            {label}
+          </button>
+        ))}
       </div>
 
-      <h3>Validacions</h3>
-      {errors.length === 0 ? (
-        <div className="notice success">Aquesta fitxa no té errors bàsics.</div>
-      ) : (
-        <div className="errorList">
-          {errors.map((e) => (
-            <div className="notice" key={e}>⚠ {e}</div>
-          ))}
+      {tab === "general" && (
+        <div className="tabBody">
+          <div className="infoGrid">
+            <Info label="ID proposta" value={row.id || "—"} />
+            <Info label="ID intern" value={row.idIntern || "—"} />
+            <Info label="ID web" value={row.idWeb || "—"} />
+            <Info label="Encarregada" value={row.encarregada || "—"} />
+            <Info label="Categoria" value={row.categoria || "—"} />
+            <Info label="Modalitat" value={row.modalitat || "—"} />
+            <Info label="Agrupador" value={row.agrupador || "—"} />
+            <Info label="Fila origen" value={row._row || "—"} />
+          </div>
+
+          <div className="sectionTitle">Calendari i ubicació</div>
+          <div className="infoGrid">
+            <Info label="Data inici" value={`${row.dataInici || "—"} ${row.horaInici || ""}`} />
+            <Info label="Data final" value={`${row.dataFinal || "—"} ${row.horaFinal || ""}`} />
+            <Info label="Espai" value={row.espai || "Sense espai"} />
+            <Info label="Districte" value={row.districte || "Sense districte"} />
+          </div>
+        </div>
+      )}
+
+      {tab === "web" && (
+        <div className="tabBody">
+          <div className="infoGrid">
+            <Info label="Títol web" value={row.titolWeb || "—"} />
+            <Info label="Títol activitat CAT" value={row.titol || "—"} />
+            <Info label="ID WEB" value={row.idWeb || "—"} />
+            <Info label="Importar" value={row.importar ? "Sí" : "No"} />
+            <Info label="Imatge principal" value={row.imatge ? "Assignada" : "Falta imatge"} />
+            <Info label="Categoria" value={row.categoria || "—"} />
+          </div>
+
+          {row.imatge && (
+            <a className="externalLink" href={row.imatge} target="_blank" rel="noreferrer">
+              Obrir imatge principal
+            </a>
+          )}
+        </div>
+      )}
+
+      {tab === "produccio" && (
+        <div className="tabBody">
+          <div className="infoGrid">
+            <Info label="Aforament" value={row.aforament || "—"} />
+            <Info label="Import amb IVA" value={row.importAmbIva ? `${row.importAmbIva} €` : "—"} />
+            <Info label="Entrada" value={row.entrada || "—"} />
+            <Info label="Modalitat" value={row.modalitat || "—"} />
+            <Info label="Espai" value={row.espai || "—"} />
+            <Info label="Districte" value={row.districte || "—"} />
+          </div>
+
+          <div className="notice">
+            Més endavant aquí podem afegir persones inscrites, assistents i percentatge d’ocupació.
+          </div>
+        </div>
+      )}
+
+      {tab === "errors" && (
+        <div className="tabBody">
+          {errors.length === 0 ? (
+            <div className="notice success">Aquesta fitxa no té errors bàsics.</div>
+          ) : (
+            <div className="errorList">
+              {errors.map((e) => (
+                <div className="notice" key={e}>⚠ {e}</div>
+              ))}
+            </div>
+          )}
+
+          <div className="sectionTitle">Criteris revisats</div>
+          <div className="checkList">
+            <span className={row.titolWeb ? "good" : "bad"}>{row.titolWeb ? "✓" : "×"} Títol web</span>
+            <span className={row.dataInici ? "good" : "bad"}>{row.dataInici ? "✓" : "×"} Data inici</span>
+            <span className={row.espai ? "good" : "bad"}>{row.espai ? "✓" : "×"} Espai</span>
+            <span className={row.idWeb ? "good" : "bad"}>{row.idWeb ? "✓" : "×"} ID WEB</span>
+          </div>
         </div>
       )}
     </div>
@@ -813,6 +896,21 @@ p { color: #666; }
 .bar i { display: block; height: 100%; background: #111; border-radius: 999px; }
 .bar b { text-align: right; }
 .screen { padding: 40px; font-size: 22px; }
+
+.badge.warning { background: #fff0d6; color: #8a5700; }
+.tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; background: #f3f3f1; padding: 6px; border-radius: 18px; margin: 20px 0; }
+.tabs button { border: 0; background: transparent; border-radius: 13px; padding: 10px 8px; font-weight: 700; color: #666; }
+.tabs button.active { background: #111; color: #fff; }
+.tabBody { margin-top: 12px; }
+.sectionTitle { font-weight: 800; margin: 22px 0 12px; letter-spacing: -0.02em; }
+.heroImage { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.heroImage a, .externalLink { color: #111; font-weight: 800; text-decoration: underline; text-underline-offset: 4px; }
+.externalLink { display: inline-block; margin-top: 12px; }
+.checkList { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 10px; }
+.checkList span { border-radius: 14px; padding: 11px 12px; font-weight: 700; }
+.checkList .good { background: #eaf7ee; color: #146c2e; }
+.checkList .bad { background: #fff0d6; color: #8a5700; }
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
