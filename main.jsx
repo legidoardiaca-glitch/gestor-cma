@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 const API_URL =
-  "https://script.google.com/macros/s/AKfycbwIMYYBvm4veXb4ecpTmgfDXbQalgDWsQWUq4w5iMLMSBCEniadDS7kZO0dfkaBLcz-/exec";
+  "https://docs.google.com/spreadsheets/d/e/2PACX-1vRWPBpxuBECSh1kLS1Vm-gdmOQhWw6_aBUUsjrX3wMZlaL17IsIkhFrSa8ovmbMR-uFL07SeX5ClGOM/pub?gid=1637995479&single=true&output=csv";
 
 function loadJsonp(url) {
   return new Promise((resolve, reject) => {
@@ -34,7 +34,64 @@ function loadJsonp(url) {
     document.body.appendChild(script);
   });
 }
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let insideQuotes = false;
 
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const next = text[i + 1];
+
+    if (char === '"' && insideQuotes && next === '"') {
+      cell += '"';
+      i++;
+    } else if (char === '"') {
+      insideQuotes = !insideQuotes;
+    } else if (char === "," && !insideQuotes) {
+      row.push(cell);
+      cell = "";
+    } else if ((char === "\n" || char === "\r") && !insideQuotes) {
+      if (cell || row.length) {
+        row.push(cell);
+        rows.push(row);
+        row = [];
+        cell = "";
+      }
+      if (char === "\r" && next === "\n") i++;
+    } else {
+      cell += char;
+    }
+  }
+
+  if (cell || row.length) {
+    row.push(cell);
+    rows.push(row);
+  }
+
+  const headers = rows[0].map(normalizeCsvHeader);
+
+  return rows.slice(1).map((values, rowIndex) => {
+    const obj = { _row: rowIndex + 2 };
+
+    headers.forEach((header, index) => {
+      obj[header] = values[index] || "";
+    });
+
+    return obj;
+  });
+}
+
+function normalizeCsvHeader(header) {
+  return String(header)
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "");
+}
 function normalizeBool(value) {
   const text = String(value ?? "").toLowerCase().trim();
   return value === true || ["true", "sí", "si", "yes", "1"].includes(text);
@@ -1076,8 +1133,10 @@ function App() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    loadJsonp(API_URL)
-      .then((data) => {
+  fetch(API_URL)
+    .then((response) => response.text())
+    .then((csvText) => {
+      const data = parseCsv(csvText);
   let passis = [];
 
   if (Array.isArray(data.headers) && Array.isArray(data.rows)) {
