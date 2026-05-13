@@ -1078,8 +1078,43 @@ function App() {
   useEffect(() => {
     loadJsonp(API_URL)
       .then((data) => {
-        const passis = Array.isArray(data.passis) ? data.passis.map(normalizeRow) : [];
-        const espais = Array.isArray(data.espais) ? data.espais.map(normalizeSpace) : [];
+  let passis = [];
+
+  if (Array.isArray(data.headers) && Array.isArray(data.rows)) {
+    passis = data.rows.map((rowArray, rowIndex) => {
+      const row = {};
+
+      data.headers.forEach((header, index) => {
+        row[header] = rowArray[index];
+      });
+
+      return normalizeRow({
+        _row: rowIndex + 2,
+        id: row.id,
+        idIntern: row.id_intern,
+        idWeb: row.id_web,
+        encarregada: row.encarregada,
+        titol: row.titol_activitat_cat || row.titol_activitat,
+        titolWeb: row.titol_activitat_web,
+        categoria: row.categoria,
+        agrupador: row.agrupador,
+        modalitat: row.modalitat,
+        dataInici: row.data_inici,
+        horaInici: row.hora_inici,
+        dataFinal: row.data_final,
+        horaFinal: row.hora_final,
+        espai: row.espai_on_es_desenvolupara_l_activitat,
+        districte: row.districte,
+        imatge: row.imatge_principal,
+        importAmbIva: row.import_capi_amb_iva,
+        importar: row.importar,
+      });
+    });
+  } else if (Array.isArray(data.passis)) {
+    passis = data.passis.map(normalizeRow);
+  }
+
+  const espais = Array.isArray(data.espais) ? data.espais.map(normalizeSpace) : [];
         setRows(passis);
         setApiSpaces(espais);
         if (passis[0]) setSelectedActivityId(passis[0]._row || passis[0].idIntern);
