@@ -99,10 +99,18 @@ function normalizeBool(value) {
 
 function normalizeDate(value) {
   if (!value) return "";
-  const text = String(value);
+  const text = String(value).trim();
+
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+
+  const ddmmyyyy = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (ddmmyyyy) {
+    const [, d, m, y] = ddmmyyyy;
+    return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+
   const date = new Date(text);
-  if (Number.isNaN(date.getTime())) return text;
+  if (Number.isNaN(date.getTime())) return "";
   return date.toISOString().slice(0, 10);
 }
 
@@ -137,6 +145,18 @@ function normalizeRow(row) {
     imatge: String(row.imatge || ""),
     importAmbIva: String(row.importAmbIva || ""),
     importar: normalizeBool(row.importar),
+    autores: String(row.autores || ""),
+    contacteAutores: String(row.contacteAutores || ""),
+    presencialitat: String(row.presencialitat || ""),
+    franjaHoraria: String(row.franjaHoraria || ""),
+    dataEscritaCat: String(row.dataEscritaCat || ""),
+    municipi: String(row.municipi || ""),
+    entrada: String(row.entrada || ""),
+    infoInscripcio: String(row.infoInscripcio || ""),
+    enllacInscripcions: String(row.enllacInscripcions || ""),
+    aforament: String(row.aforament || ""),
+    entradetaCat: String(row.entradetaCat || ""),
+    voluntaris: normalizeBool(row.voluntaris),
   };
 }
 
@@ -1133,56 +1153,60 @@ function App() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-  fetch(API_URL)
-    .then((response) => response.text())
-    .then((csvText) => {
-      const data = parseCsv(csvText);
-  let passis = [];
+    fetch(API_URL, { cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Error carregant CSV: ${response.status}`);
+        return response.text();
+      })
+      .then((csvText) => {
+        const csvRows = parseCsv(csvText);
 
-  if (Array.isArray(data.headers) && Array.isArray(data.rows)) {
-    passis = data.rows.map((rowArray, rowIndex) => {
-      const row = {};
+        const passis = csvRows
+          .filter((row) => row.id || row.id_intern || row.titol_activitat || row.titol_activitat_cat)
+          .map((row) =>
+            normalizeRow({
+              _row: row._row,
+              id: row.id,
+              idIntern: row.id_intern,
+              idWeb: row.id_web,
+              encarregada: row.encarregada,
+              titol: row.titol_activitat_cat || row.titol_activitat,
+              titolWeb: row.titol_activitat_cat || row.titol_activitat,
+              categoria: row.categoria,
+              agrupador: row.agrupador,
+              modalitat: row.modalitat,
+              dataInici: row.data_inici,
+              horaInici: row.hora_inici,
+              dataFinal: row.data_final,
+              horaFinal: row.hora_final,
+              espai: row.espai_on_es_desenvolupara_l_activitat,
+              districte: row.districte,
+              imatge: row.imatge_principal_mida_900x600_72_dpi_pes_maxim_400kb,
+              importar: row.importar,
+              autores: row.autores,
+              contacteAutores: row.contacte_autores,
+              presencialitat: row.presencialitat,
+              franjaHoraria: row.franja_horaria,
+              dataEscritaCat: row.data_escrita_cat_en_cas_de_tenir_varis_passis,
+              municipi: row.municipi_fora_bcn,
+              entrada: row.entrada,
+              infoInscripcio: row.informacio_de_la_inscripcio,
+              enllacInscripcions: row.enllac_inscripcions,
+              aforament: row.aforment || row.aforament,
+              entradetaCat: row.entradeta_cat,
+              voluntaris: row.necesito_voluntaris,
+            })
+          );
 
-      data.headers.forEach((header, index) => {
-        row[header] = rowArray[index];
-      });
-
-      return normalizeRow({
-        _row: rowIndex + 2,
-        id: row.id,
-        idIntern: row.id_intern,
-        idWeb: row.id_web,
-        encarregada: row.encarregada,
-        titol: row.titol_activitat_cat || row.titol_activitat,
-        titolWeb: row.titol_activitat_web,
-        categoria: row.categoria,
-        agrupador: row.agrupador,
-        modalitat: row.modalitat,
-        dataInici: row.data_inici,
-        horaInici: row.hora_inici,
-        dataFinal: row.data_final,
-        horaFinal: row.hora_final,
-        espai: row.espai_on_es_desenvolupara_l_activitat,
-        districte: row.districte,
-        imatge: row.imatge_principal,
-        importAmbIva: row.import_capi_amb_iva,
-        importar: row.importar,
-      });
-    });
-  } else if (Array.isArray(data.passis)) {
-    passis = data.passis.map(normalizeRow);
-  }
-
-  const espais = Array.isArray(data.espais) ? data.espais.map(normalizeSpace) : [];
         setRows(passis);
-        setApiSpaces(espais);
+        setApiSpaces([]);
         if (passis[0]) setSelectedActivityId(passis[0]._row || passis[0].idIntern);
-        setStatus("Dades reals");
+        setStatus(`CSV publicat · ${passis.length} registres`);
         setLoading(false);
       })
       .catch((err) => {
         setError(err.message || "Error carregant dades");
-        setStatus("Error API");
+        setStatus("Error CSV");
         setLoading(false);
       });
   }, []);
