@@ -1051,9 +1051,20 @@ function SpaceDetail({ space, onOpenActivity }) {
 
 
 function DashboardView({ rows }) {
+  const categoryData = countBy(rows, "categoria");
+  const districtData = countBy(rows, "districte");
+  const managerData = countBy(rows, "encarregada");
+  const monthData = countBy(
+    rows
+      .filter((row) => isValidDateString(row.dataInici))
+      .map((row) => ({ mes: getMonthKey(row.dataInici) })),
+    "mes"
+  );
+
   return (
     <>
-      <Top title="Dashboard direcció" subtitle="Indicadors generals del programa connectats al Google Sheets." />
+      <Top title="Dashboard direcció" subtitle="Lectura visual general del programa: tipologies, territori, equips i calendari 2026." />
+
       <div className="stats">
         <StatCard label="Passis" value={rows.length} />
         <StatCard label="Propostes" value={uniqueCount(rows, "id")} />
@@ -1061,15 +1072,192 @@ function DashboardView({ rows }) {
         <StatCard label="Espais" value={uniqueCount(rows, "espai")} />
         <StatCard label="Districtes" value={uniqueCount(rows, "districte")} />
       </div>
-      <div className="dashboardGrid">
-        <Chart title="Activitats per tipologia" data={countBy(rows, "categoria")} />
-        <Chart title="Activitats per districte" data={countBy(rows, "districte")} />
-        <Chart title="Activitats per encarregada" data={countBy(rows, "encarregada")} />
-        <Chart title="Activitats per mes" data={countBy(rows.map((r) => ({ mes: getMonthKey(r.dataInici) })), "mes")} />
+
+      <div className="dashboardVisualGrid">
+        <PieChart title="Activitats per tipologia" data={categoryData} />
+        <DistrictMap title="Activitats per districte" data={districtData} />
+        <VerticalBars title="Activitats per encarregada" data={managerData} />
+        <MonthCalendar title="Activitats per mes · 2026" data={monthData} />
       </div>
     </>
   );
 }
+
+function PieChart({ title, data }) {
+  const entries = Object.entries(data)
+    .filter(([name]) => name && name !== "Sense dades")
+    .sort((a, b) => b[1] - a[1]);
+
+  const total = entries.reduce((sum, [, value]) => sum + value, 0) || 1;
+  let cumulative = 0;
+
+  const gradient = entries
+    .map(([name, value], index) => {
+      const start = (cumulative / total) * 100;
+      cumulative += value;
+      const end = (cumulative / total) * 100;
+      return `var(--chart-${(index % 10) + 1}) ${start}% ${end}%`;
+    })
+    .join(", ");
+
+  return (
+    <div className="vizCard">
+      <div className="vizHeader">
+        <h2>{title}</h2>
+        <Badge>{total} passis</Badge>
+      </div>
+
+      <div className="pieLayout">
+        <div className="pie" style={{ background: `conic-gradient(${gradient})` }}>
+          <div>{entries.length}<span>tipologies</span></div>
+        </div>
+
+        <div className="legend">
+          {entries.slice(0, 10).map(([name, value], index) => (
+            <div className="legendItem" key={name}>
+              <i style={{ background: `var(--chart-${(index % 10) + 1})` }} />
+              <span>{name}</span>
+              <b>{value}</b>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DistrictMap({ title, data }) {
+  const districts = [
+    ["01 Ciutat Vella", "CV"],
+    ["02 Eixample", "EX"],
+    ["03 Sants-Montjuïc", "SM"],
+    ["04 Les Corts", "LC"],
+    ["05 Sarrià-Sant Gervasi", "SSG"],
+    ["06 Gràcia", "GR"],
+    ["07 Horta-Guinardó", "HG"],
+    ["08 Nou Barris", "NB"],
+    ["09 Sant Andreu", "SA"],
+    ["10 Sant Martí", "ST"],
+  ];
+
+  function getValue(name) {
+    const found = Object.entries(data).find(([key]) =>
+      String(key).toLowerCase().includes(name.slice(3).toLowerCase()) ||
+      String(key).startsWith(name.slice(0, 2))
+    );
+    return found ? found[1] : 0;
+  }
+
+  const max = Math.max(...districts.map(([name]) => getValue(name)), 1);
+
+  return (
+    <div className="vizCard">
+      <div className="vizHeader">
+        <h2>{title}</h2>
+        <Badge>{Object.values(data).reduce((a, b) => a + b, 0)} passis</Badge>
+      </div>
+
+      <div className="districtMap">
+        {districts.map(([name, short], index) => {
+          const value = getValue(name);
+          const intensity = value / max;
+          return (
+            <div
+              key={name}
+              className={`districtCell d${index + 1}`}
+              style={{ opacity: 0.35 + intensity * 0.65 }}
+              title={`${name}: ${value}`}
+            >
+              <strong>{short}</strong>
+              <span>{value}</span>
+              <small>{name.replace(/^\d+\s/, "")}</small>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function VerticalBars({ title, data }) {
+  const entries = Object.entries(data)
+    .filter(([name]) => name && name !== "Sense dades")
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8);
+
+  const max = Math.max(...entries.map(([, value]) => value), 1);
+
+  return (
+    <div className="vizCard">
+      <div className="vizHeader">
+        <h2>{title}</h2>
+        <Badge>{entries.length} equips</Badge>
+      </div>
+
+      <div className="verticalBars">
+        {entries.map(([name, value], index) => (
+          <div className="vBarItem" key={name}>
+            <div className="vBarWrap">
+              <div
+                className="vBar"
+                style={{
+                  height: `${Math.max(8, (value / max) * 100)}%`,
+                  background: `var(--chart-${(index % 10) + 1})`,
+                }}
+              />
+            </div>
+            <b>{value}</b>
+            <span>{name}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MonthCalendar({ title, data }) {
+  const months = [
+    ["2026-01", "Gener"],
+    ["2026-02", "Febrer"],
+    ["2026-03", "Març"],
+    ["2026-04", "Abril"],
+    ["2026-05", "Maig"],
+    ["2026-06", "Juny"],
+    ["2026-07", "Juliol"],
+    ["2026-08", "Agost"],
+    ["2026-09", "Setembre"],
+    ["2026-10", "Octubre"],
+    ["2026-11", "Novembre"],
+    ["2026-12", "Desembre"],
+  ];
+
+  const max = Math.max(...months.map(([key]) => data[key] || 0), 1);
+
+  return (
+    <div className="vizCard">
+      <div className="vizHeader">
+        <h2>{title}</h2>
+        <Badge>12 mesos</Badge>
+      </div>
+
+      <div className="monthDashboard">
+        {months.map(([key, label]) => {
+          const value = data[key] || 0;
+          return (
+            <div className="monthDashCell" key={key}>
+              <span>{label}</span>
+              <strong>{value}</strong>
+              <div>
+                <i style={{ width: `${(value / max) * 100}%` }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 
 function Chart({ title, data }) {
   const entries = Object.entries(data).sort((a, b) => b[1] - a[1]).slice(0, 12);
@@ -1397,6 +1585,12 @@ p { color: #666; }
   .split, .spaceGrid, .dashboardGrid { grid-template-columns: 1fr; }
   .stats { grid-template-columns: repeat(2, 1fr); }
   .panel { position: static; }
+
+  .dashboardVisualGrid { grid-template-columns: 1fr; }
+  .pieLayout { grid-template-columns: 1fr; justify-items: center; }
+  .monthDashboard { grid-template-columns: repeat(2, 1fr); }
+  .districtMap { grid-template-columns: repeat(2, 1fr); grid-template-rows: none; }
+  .districtCell, .districtCell.d1, .districtCell.d2, .districtCell.d3, .districtCell.d4, .districtCell.d5, .districtCell.d6, .districtCell.d7, .districtCell.d8, .districtCell.d9, .districtCell.d10 { grid-column: auto; grid-row: auto; }
 }
 `;
 
