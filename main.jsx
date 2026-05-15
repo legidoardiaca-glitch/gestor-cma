@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
-const DATA_URL = "https://gestor-cma.vercel.app//api/data";;
+const DATA_URL = "https://gestor-cma.vercel.app//api/data";
 
 function loadJsonp(url) {
   return new Promise((resolve, reject) => {
@@ -33,6 +33,7 @@ function loadJsonp(url) {
     document.body.appendChild(script);
   });
 }
+
 function parseCsv(text) {
   const rows = [];
   let row = [];
@@ -120,11 +121,6 @@ async function loadPassisFromIndex() {
   }
 
   return data.rows;
-}
-
-  return batchResponses.flatMap((batch) =>
-    rowsToObjects(batch.headers, batch.rows, batch.startRow)
-  );
 }
 
 function normalizeBool(value) {
