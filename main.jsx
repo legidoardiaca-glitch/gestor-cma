@@ -1349,8 +1349,20 @@ function TypeDonut({ title, data }) {
   );
 }
 
+function formatDistrictName(value) {
+  return String(value || "")
+    .replace(/^\d+\s*/, "")
+    .replace(/([a-zà-ÿ])([A-ZÀ-Ÿ])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
 function DistrictBars({ title, data }) {
-  const entries = toChartEntries(data, 10);
+ const entries = toChartEntries(data, 10).map((item) => ({
+  ...item,
+  label: formatDistrictName(item.name),
+}));
   const total = entries.reduce((sum, item) => sum + item.value, 0);
 
   return (
@@ -1358,20 +1370,24 @@ function DistrictBars({ title, data }) {
       <div className="chartBody">
         <ResponsiveContainer width="100%" height={300}>
           <BarChart
-            data={entries}
-            layout="vertical"
-            margin={{ top: 12, right: 34, bottom: 10, left: 92 }}
-          >
+  data={entries}
+  layout="vertical"
+  margin={{ top: 12, right: 34, bottom: 10, left: 115 }}
+>
             <CartesianGrid strokeDasharray="3 3" horizontal={false} />
             <XAxis type="number" tickLine={false} axisLine={false} />
             <YAxis
-              type="category"
-              dataKey="name"
-              width={92}
-              tickLine={false}
-              axisLine={false}
-              tick={{ fontSize: 12 }}
-            />
+  type="category"
+  dataKey="label"
+  width={150}
+  tickLine={false}
+  axisLine={false}
+  tick={{
+    fontSize: 11,
+    fill: "#555",
+    textAnchor: "end",
+  }}
+/>
             <Tooltip />
             <Bar dataKey="value" fill="#2f6fdd" radius={[0, 7, 7, 0]} />
           </BarChart>
@@ -1803,7 +1819,13 @@ p { color: #666; }
 .chartBody { height: 300px; }
 .donutCardBody { display: grid; grid-template-columns: 300px 1fr; gap: 24px; align-items: center; min-height: 290px; }
 .donutWrap { position: relative; height: 260px; }
-.donutCenter { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; text-align: center; }
+.donutCenter {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -40%);
+  text-align: center;
+}
 .donutCenter strong { display: block; font-size: 28px; line-height: 1; }
 .donutCenter span { display: block; margin-top: 5px; color: #555; font-size: 13px; }
 .donutLegend { display: grid; gap: 10px; }
