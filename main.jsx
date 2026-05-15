@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
-const INDEX_URL =
-  "https://drive.google.com/uc?export=download&id=1BwnFNibQldZdARvdvoSAiJfpAOjKbY1X";
-
+const DATA_URL = "https://gestor-k8t78sdk5-legidoardiaca-5240s-projects.vercel.app/api/data";
+  
 function loadJsonp(url) {
   return new Promise((resolve, reject) => {
     const callbackName = `callback_${Date.now()}_${Math.round(Math.random() * 100000)}`;
