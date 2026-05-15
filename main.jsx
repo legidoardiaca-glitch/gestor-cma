@@ -1,7 +1,88 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
-const API_URL = "/api/data";
+const INDEX_URL =
+  "https://drive.google.com/uc?export=download&id=1BwnFNibQldZdARvdvoSAiJfpAOjKbY1X";
+
+function loadJsonp(url) {
+  return new Promise((resolve, reject) => {
+    const callbackName = `callback_${Date.now()}_${Math.round(Math.random() * 100000)}`;
+    const script = document.createElement("script");
+    const separator = url.includes("?") ? "&" : "?";
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error("Temps d'espera esgotat carregant l'API"));
+    }, 25000);
+
+    function cleanup() {
+      clearTimeout(timeout);
+      delete window[callbackName];
+      script.remove();
+    }
+
+    window[callbackName] = (data) => {
+      cleanup();
+      resolve(data);
+    };
+
+    script.onerror = () => {
+      cleanup();
+      reject(new Error("No s'ha pogut carregar l'API"));
+    };
+
+    script.src = `${url}${separator}callback=${callbackName}`;
+    document.body.appendChild(script);
+  });
+}
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let insideQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const next = text[i + 1];
+
+    if (char === '"' && insideQuotes && next === '"') {
+      cell += '"';
+      i++;
+    } else if (char === '"') {
+      insideQuotes = !insideQuotes;
+    } else if (char === "," && !insideQuotes) {
+      row.push(cell);
+      cell = "";
+    } else if ((char === "\n" || char === "\r") && !insideQuotes) {
+      if (cell || row.length) {
+        row.push(cell);
+        rows.push(row);
+        row = [];
+        cell = "";
+      }
+      if (char === "\r" && next === "\n") i++;
+    } else {
+      cell += char;
+    }
+  }
+
+  if (cell || row.length) {
+    row.push(cell);
+    rows.push(row);
+  }
+
+  const headers = rows[0].map(normalizeCsvHeader);
+
+  return rows.slice(1).map((values, rowIndex) => {
+    const obj = { _row: rowIndex + 2 };
+
+    headers.forEach((header, index) => {
+      obj[header] = values[index] || "";
+    });
+
+    return obj;
+  });
+}
+
 function normalizeCsvHeader(header) {
   return String(header)
     .trim()
@@ -11,6 +92,7 @@ function normalizeCsvHeader(header) {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_|_$/g, "");
 }
+
 function rowsToObjects(headers, rows, startRow = 2) {
   return rows.map((row, rowIndex) => {
     const obj = {
@@ -26,20 +108,35 @@ function rowsToObjects(headers, rows, startRow = 2) {
 }
 
 async function loadPassisFromIndex() {
-  const response = await fetch(API_URL, { cache: "no-store" });
+  const indexResponse = await fetch(INDEX_URL, { cache: "no-store" });
 
-  if (!response.ok) {
-    throw new Error(`Error carregant dades JSON: ${response.status}`);
+  if (!indexResponse.ok) {
+    throw new Error(`Error carregant index JSON: ${indexResponse.status}`);
   }
 
-  const data = await response.json();
+  const indexData = await indexResponse.json();
 
-  if (!Array.isArray(data.rows)) {
-    throw new Error("La resposta de /api/data no conté files vàlides");
+  if (!Array.isArray(indexData.batches)) {
+    throw new Error("L'index JSON no conté la llista de lots.");
   }
 
-  return data.rows;
+  const batchResponses = await Promise.all(
+    indexData.batches.map(async (batch) => {
+      const response = await fetch(batch.url, { cache: "no-store" });
+
+      if (!response.ok) {
+        throw new Error(`Error carregant lot ${batch.batch}: ${response.status}`);
+      }
+
+      return response.json();
+    })
+  );
+
+  return batchResponses.flatMap((batch) =>
+    rowsToObjects(batch.headers, batch.rows, batch.startRow)
+  );
 }
+
 function normalizeBool(value) {
   const text = String(value ?? "").toLowerCase().trim();
   return value === true || ["true", "sí", "si", "yes", "1"].includes(text);
@@ -1288,62 +1385,13 @@ function App() {
   const [status, setStatus] = useState("Carregant API...");
   const [error, setError] = useState("");
 
-useEffect(() => {
-  loadPassisFromIndex()
-    .then((jsonRows) => {
-      const passis = jsonRows
-        .filter((row) => row.id || row.id_intern || row.titol_activitat || row.titol_activitat_cat)
-        .map((row) =>
-          normalizeRow({
-            _row: row._row,
-            id: row.id,
-            idIntern: row.id_intern,
-            idWeb: row.id_web,
-            encarregada: row.encarregada,
-            titol: row.titol_activitat_cat || row.titol_activitat,
-            titolWeb: row.titol_activitat_cat || row.titol_activitat,
-            categoria: row.categoria,
-            agrupador: row.agrupador,
-            modalitat: row.modalitat,
-            dataInici: row.data_inici,
-            horaInici: row.hora_inici,
-            dataFinal: row.data_final,
-            horaFinal: row.hora_final,
-            espai: row.espai_on_es_desenvolupara_l_activitat,
-            districte: row.districte,
-            imatge: row.imatge_principal_mida_900x600_72_dpi_pes_maxim_400kb,
-            importar: row.importar,
-            autores: row.autores,
-            contacteAutores: row.contacte_autores,
-            presencialitat: row.presencialitat,
-            franjaHoraria: row.franja_horaria,
-            dataEscritaCat: row.data_escrita_cat_en_cas_de_tenir_varis_passis,
-            municipi: row.municipi_fora_bcn,
-            entrada: row.entrada,
-            infoInscripcio: row.informacio_de_la_inscripcio,
-            enllacInscripcions: row.enllac_inscripcions,
-            aforament: row.aforment || row.aforament,
-            entradetaCat: row.entradeta_cat,
-            voluntaris: row.necesito_voluntaris,
-          })
-        );
-
-      setRows(passis);
-      setApiSpaces([]);
-
-      if (passis[0]) {
-        setSelectedActivityId(passis[0]._row || passis[0].idIntern);
-      }
-
-      setStatus(`JSON per lots · ${passis.length} registres`);
-      setLoading(false);
-    })
-    .catch((err) => {
-      setError(err.message || "Error carregant dades");
-      setStatus("Error JSON");
-      setLoading(false);
-    });
-}, []);
+  useEffect(() => {
+    loadPassisFromIndex()
+      .then((jsonRows) => {
+        const passis = jsonRows
+          .filter((row) => row.id || row.id_intern || row.titol_activitat || row.titol_activitat_cat)
+          .map((row) =>
+            normalizeRow({
               _row: row._row,
               id: row.id,
               idIntern: row.id_intern,
@@ -1379,13 +1427,17 @@ useEffect(() => {
 
         setRows(passis);
         setApiSpaces([]);
-        if (passis[0]) setSelectedActivityId(passis[0]._row || passis[0].idIntern);
-        setStatus(`CSV publicat · ${passis.length} registres`);
+
+        if (passis[0]) {
+          setSelectedActivityId(passis[0]._row || passis[0].idIntern);
+        }
+
+        setStatus(`JSON per lots · ${passis.length} registres`);
         setLoading(false);
       })
       .catch((err) => {
         setError(err.message || "Error carregant dades");
-        setStatus("Error CSV");
+        setStatus("Error JSON");
         setLoading(false);
       });
   }, []);
