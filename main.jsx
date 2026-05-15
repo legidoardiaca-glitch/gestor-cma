@@ -212,6 +212,34 @@ function normalizeTime(value) {
   return date.toTimeString().slice(0, 5);
 }
 
+
+function normalizeImageUrl(url) {
+  const text = String(url || "").trim();
+  if (!text) return "";
+
+  const fileMatch = text.match(/\/file\/d\/([^/]+)/);
+  if (fileMatch) {
+    return `https://drive.google.com/uc?export=view&id=${fileMatch[1]}`;
+  }
+
+  const openMatch = text.match(/[?&]id=([^&]+)/);
+  if (text.includes("drive.google.com") && openMatch) {
+    return `https://drive.google.com/uc?export=view&id=${openMatch[1]}`;
+  }
+
+  return text;
+}
+
+function getSafeFileName(value) {
+  return String(value || "activitat")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 70) || "activitat";
+}
+
 function normalizeRow(row) {
   return {
     _row: row._row || row._rowNumber || "",
@@ -515,30 +543,103 @@ function ActivityCard({ row, selected, onClick }) {
 
 function Detail({ row, onSearchRelated, onChangeView }) {
   const [tab, setTab] = useState("general");
+  const [exporting, setExporting] = useState(false);
+  const detailRef = useRef(null);
 
   if (!row) return <div className="panel">Selecciona una activitat.</div>;
 
   const errors = getErrors(row);
+  const imageUrl = normalizeImageUrl(row.imatge);
+  const fileBase = `activitat-${getSafeFileName(row.idIntern || row.idWeb || row.titolWeb || row.titol)}`;
+
+  async function exportActivity(type) {
+    if (!detailRef.current || exporting) return;
+
+    setExporting(true);
+
+    try {
+      const node = detailRef.current;
+
+      if (type === "jpg") {
+        const dataUrl = await toJpeg(node, {
+          quality: 0.96,
+          backgroundColor: "#ffffff",
+          pixelRatio: 2,
+          cacheBust: true,
+        });
+
+        downloadDataUrl(dataUrl, `${fileBase}.jpg`);
+      }
+
+      if (type === "png") {
+        const dataUrl = await toPng(node, {
+          backgroundColor: "#ffffff",
+          pixelRatio: 2,
+          cacheBust: true,
+        });
+
+        downloadDataUrl(dataUrl, `${fileBase}.png`);
+      }
+
+      if (type === "pdf") {
+        const dataUrl = await toPng(node, {
+          backgroundColor: "#ffffff",
+          pixelRatio: 2,
+          cacheBust: true,
+        });
+
+        const width = node.offsetWidth;
+        const height = node.offsetHeight;
+        const pdf = new jsPDF({
+          orientation: width >= height ? "landscape" : "portrait",
+          unit: "px",
+          format: [width, height],
+        });
+
+        pdf.addImage(dataUrl, "PNG", 0, 0, width, height);
+        pdf.save(`${fileBase}.pdf`);
+      }
+    } catch (err) {
+      alert(`No s'ha pogut exportar la fitxa: ${err.message}`);
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
-    <div className="panel detail">
+    <div ref={detailRef} className="panel detail activityExportArea">
+      <div className="detailTopBar">
+        <div className="detailStatus">
+          <Badge>{row.idIntern}</Badge>
+          <Badge>{row.idWeb || "Sense ID WEB"}</Badge>
+          <Badge>{row.encarregada || "Sense encarregada"}</Badge>
+          <Badge tone={row.importar ? "success" : "neutral"}>{row.importar ? "Importar" : "No importar"}</Badge>
+          {errors.length > 0 && <Badge tone="warning">{errors.length} avisos</Badge>}
+        </div>
+
+        <div className="activityExportControls">
+          <span>Exportar</span>
+          <button type="button" disabled={exporting} onClick={() => exportActivity("png")}>
+            PNG
+          </button>
+          <button type="button" disabled={exporting} onClick={() => exportActivity("jpg")}>
+            JPG
+          </button>
+          <button type="button" disabled={exporting} onClick={() => exportActivity("pdf")}>
+            PDF
+          </button>
+        </div>
+      </div>
+
       <div className="hero">
-        {row.imatge ? (
-          <div className="heroImage">
-            <span>Imatge principal vinculada</span>
-            <a href={row.imatge} target="_blank" rel="noreferrer">Obrir imatge</a>
+        {imageUrl ? (
+          <div className="heroImageReal">
+            <img src={imageUrl} crossOrigin="anonymous" alt={row.titolWeb || row.titol || "Imatge de l'activitat"} />
+            <a href={imageUrl} target="_blank" rel="noreferrer">Obrir imatge</a>
           </div>
         ) : (
           <span>Sense imatge principal</span>
         )}
-      </div>
-
-      <div className="badges">
-        <Badge>{row.idIntern}</Badge>
-        <Badge>{row.idWeb || "Sense ID WEB"}</Badge>
-        <Badge>{row.encarregada || "Sense encarregada"}</Badge>
-        <Badge tone={row.importar ? "success" : "neutral"}>{row.importar ? "Importar" : "No importar"}</Badge>
-        {errors.length > 0 && <Badge tone="warning">{errors.length} avisos</Badge>}
       </div>
 
       <h2>{row.titolWeb || row.titol || "Sense títol"}</h2>
@@ -600,8 +701,8 @@ function Detail({ row, onSearchRelated, onChangeView }) {
             <Info label="Categoria" value={row.categoria || "—"} />
           </div>
 
-          {row.imatge && (
-            <a className="externalLink" href={row.imatge} target="_blank" rel="noreferrer">
+          {imageUrl && (
+            <a className="externalLink" href={imageUrl} target="_blank" rel="noreferrer">
               Obrir imatge principal
             </a>
           )}
@@ -662,7 +763,23 @@ function Info({ label, value }) {
 function ActivitiesView({ rows, setView, selectedActivityId, setSelectedActivityId }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
-  const [selected, setSelected] = useState(rows.find((row) => String(row._row || row.idIntern) === String(selectedActivityId)) || rows[0] || null);
+  const [districtFilter, setDistrictFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [selected, setSelected] = useState(
+    rows.find((row) => String(row._row || row.idIntern) === String(selectedActivityId)) || rows[0] || null
+  );
+
+  const districtOptions = useMemo(() => {
+    return Array.from(new Set(rows.map((row) => row.districte).filter(Boolean))).sort((a, b) =>
+      a.localeCompare(b, "ca")
+    );
+  }, [rows]);
+
+  const categoryOptions = useMemo(() => {
+    return Array.from(new Set(rows.map((row) => row.categoria).filter(Boolean))).sort((a, b) =>
+      a.localeCompare(b, "ca")
+    );
+  }, [rows]);
 
   const filtered = useMemo(() => {
     return rows.filter((row) => {
@@ -681,13 +798,15 @@ function ActivitiesView({ rows, setView, selectedActivityId, setSelectedActivity
       const matchesQuery = text.includes(query.toLowerCase());
       const matchesFilter =
         filter === "all" ||
-        (filter === "importar" && row.importar) ||
         (filter === "errors" && hasErrors(row)) ||
         (filter === "senseEspai" && !row.espai);
 
-      return matchesQuery && matchesFilter;
+      const matchesDistrict = districtFilter === "all" || row.districte === districtFilter;
+      const matchesCategory = categoryFilter === "all" || row.categoria === categoryFilter;
+
+      return matchesQuery && matchesFilter && matchesDistrict && matchesCategory;
     });
-  }, [rows, query, filter]);
+  }, [rows, query, filter, districtFilter, categoryFilter]);
 
   useEffect(() => {
     const found = rows.find((row) => String(row._row || row.idIntern) === String(selectedActivityId));
@@ -695,25 +814,83 @@ function ActivitiesView({ rows, setView, selectedActivityId, setSelectedActivity
   }, [selectedActivityId, rows]);
 
   useEffect(() => {
-    if (!selected && filtered[0]) setSelected(filtered[0]);
-  }, [filtered, selected]);
+    if (!filtered.length) {
+      setSelected(null);
+      return;
+    }
+
+    const selectedInFiltered = selected
+      ? filtered.some((row) => String(row._row || row.idIntern) === String(selected._row || selected.idIntern))
+      : false;
+
+    if (!selectedInFiltered) {
+      setSelected(filtered[0]);
+      setSelectedActivityId(filtered[0]._row || filtered[0].idIntern);
+    }
+  }, [filtered, selected, setSelectedActivityId]);
 
   return (
     <>
       <Top title="Activitats" subtitle="Llistat operatiu de passis llegits directament del Google Sheets." />
-      <SearchFilters
-        query={query}
-        setQuery={setQuery}
-        activeFilter={filter}
-        setActiveFilter={setFilter}
-        placeholder="Buscar per ID, títol, espai, categoria..."
-        filters={[
-          { id: "all", label: "Tot" },
-          { id: "importar", label: "Importar" },
-          { id: "errors", label: "Errors" },
-          { id: "senseEspai", label: "Sense espai" },
-        ]}
-      />
+
+      <div className="toolbar activitiesToolbar">
+        <div className="activitySearchRow">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar per ID, títol, espai, categoria..."
+          />
+          <div className="resultsCounter">
+            <strong>{filtered.length}</strong>
+            <span>{filtered.length === 1 ? "activitat" : "activitats"}</span>
+          </div>
+        </div>
+
+        <div className="activityFiltersRow">
+          <div className="chips">
+            {[
+              { id: "all", label: "Tot" },
+              { id: "errors", label: "Errors" },
+              { id: "senseEspai", label: "Sense espai" },
+            ].map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setFilter(item.id)}
+                className={filter === item.id ? "selected" : ""}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="selectFilters">
+            <label>
+              <span>Districte</span>
+              <select value={districtFilter} onChange={(e) => setDistrictFilter(e.target.value)}>
+                <option value="all">Tots els districtes</option>
+                {districtOptions.map((district) => (
+                  <option key={district} value={district}>
+                    {district}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>Categoria</span>
+              <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+                <option value="all">Totes les categories</option>
+                {categoryOptions.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+      </div>
+
       <div className="split">
         <div className="list">
           {filtered.map((row) => (
@@ -727,6 +904,12 @@ function ActivitiesView({ rows, setView, selectedActivityId, setSelectedActivity
               }}
             />
           ))}
+
+          {!filtered.length && (
+            <div className="emptyList">
+              No hi ha activitats amb aquests filtres.
+            </div>
+          )}
         </div>
         <Detail
           row={selected}
@@ -1855,6 +2038,224 @@ p { color: #666; }
 @media (max-width: 1280px) { .donutCardBody { grid-template-columns: 1fr; } .donutWrap { max-width: 320px; width: 100%; margin: 0 auto; } }
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
+
+/* Activitats · filtros, contador, imagen y exportación */
+.activitiesToolbar {
+  padding: 14px;
+}
+
+.activitySearchRow {
+  display: grid;
+  grid-template-columns: 1fr 150px;
+  gap: 12px;
+  align-items: stretch;
+  margin-bottom: 12px;
+}
+
+.activitySearchRow input {
+  margin-bottom: 0;
+}
+
+.resultsCounter {
+  background: #111;
+  color: #fff;
+  border-radius: 16px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  line-height: 1.05;
+  min-height: 48px;
+}
+
+.resultsCounter strong {
+  font-size: 22px;
+  letter-spacing: -0.04em;
+}
+
+.resultsCounter span {
+  font-size: 11px;
+  color: #ddd;
+  font-weight: 800;
+  text-transform: uppercase;
+  margin-top: 3px;
+}
+
+.activityFiltersRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.selectFilters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.selectFilters label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: #f3f3f1;
+  border: 1px solid #ddd;
+  border-radius: 999px;
+  padding: 5px 8px 5px 12px;
+}
+
+.selectFilters label span {
+  font-size: 12px;
+  font-weight: 900;
+  color: #555;
+}
+
+.selectFilters select {
+  border: 0;
+  background: transparent;
+  max-width: 210px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #111;
+  outline: none;
+  cursor: pointer;
+}
+
+.emptyList {
+  background: #fff;
+  border: 1px dashed #ccc;
+  border-radius: 20px;
+  padding: 22px;
+  color: #666;
+  text-align: center;
+}
+
+.detailTopBar {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.detailStatus {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.activityExportControls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #f3f3f1;
+  border: 1px solid #ddd;
+  border-radius: 999px;
+  padding: 5px;
+  flex-shrink: 0;
+}
+
+.activityExportControls span {
+  font-size: 11px;
+  font-weight: 900;
+  color: #555;
+  padding: 0 5px 0 7px;
+  text-transform: uppercase;
+}
+
+.activityExportControls button {
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 9px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.activityExportControls button:hover {
+  background: #111;
+  color: #fff;
+  border-color: #111;
+}
+
+.activityExportControls button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.heroImageReal {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 20px;
+  overflow: hidden;
+  background: #efefed;
+}
+
+.heroImageReal img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.heroImageReal a {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  background: rgba(255,255,255,.92);
+  color: #111;
+  border-radius: 999px;
+  padding: 8px 11px;
+  font-size: 12px;
+  font-weight: 900;
+  text-decoration: none;
+  box-shadow: 0 3px 12px rgba(0,0,0,.12);
+}
+
+.activityExportArea {
+  background: #fff;
+}
+
+@media (max-width: 1000px) {
+  .activitySearchRow {
+    grid-template-columns: 1fr;
+  }
+
+  .resultsCounter {
+    align-items: flex-start;
+  }
+
+  .activityFiltersRow {
+    align-items: stretch;
+  }
+
+  .selectFilters {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .selectFilters label {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .selectFilters select {
+    max-width: 100%;
+  }
+
+  .detailTopBar {
+    flex-direction: column;
+  }
+
+  .activityExportControls {
+    align-self: flex-start;
+  }
+}
+
 `;
 
 
