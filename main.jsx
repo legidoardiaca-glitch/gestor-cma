@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
-const INDEX_URL =
-  "https://drive.google.com/uc?export=download&id=1BwnFNibQldZdARvdvoSAiJfpAOjKbY1X";
+const DATA_URL = "https://gestor-cma.vercel.app//api/data";;
 
 function loadJsonp(url) {
   return new Promise((resolve, reject) => {
@@ -108,29 +107,20 @@ function rowsToObjects(headers, rows, startRow = 2) {
 }
 
 async function loadPassisFromIndex() {
-  const indexResponse = await fetch(INDEX_URL, { cache: "no-store" });
+  const response = await fetch(DATA_URL, { cache: "no-store" });
 
-  if (!indexResponse.ok) {
-    throw new Error(`Error carregant index JSON: ${indexResponse.status}`);
+  if (!response.ok) {
+    throw new Error(`Error carregant dades: ${response.status}`);
   }
 
-  const indexData = await indexResponse.json();
+  const data = await response.json();
 
-  if (!Array.isArray(indexData.batches)) {
-    throw new Error("L'index JSON no conté la llista de lots.");
+  if (!Array.isArray(data.rows)) {
+    throw new Error("La resposta de /api/data no conté rows.");
   }
 
-  const batchResponses = await Promise.all(
-    indexData.batches.map(async (batch) => {
-      const response = await fetch(batch.url, { cache: "no-store" });
-
-      if (!response.ok) {
-        throw new Error(`Error carregant lot ${batch.batch}: ${response.status}`);
-      }
-
-      return response.json();
-    })
-  );
+  return data.rows;
+}
 
   return batchResponses.flatMap((batch) =>
     rowsToObjects(batch.headers, batch.rows, batch.startRow)
