@@ -215,16 +215,17 @@ function normalizeTime(value) {
 
 function normalizeImageUrl(url) {
   const text = String(url || "").trim();
+
   if (!text) return "";
 
-  const fileMatch = text.match(/\/file\/d\/([^/]+)/);
+  const fileMatch = text.match(/drive\.google\.com\/file\/d\/([^/]+)/);
   if (fileMatch) {
-    return `https://drive.google.com/uc?export=view&id=${fileMatch[1]}`;
+    return `https://drive.google.com/thumbnail?id=${fileMatch[1]}&sz=w1200`;
   }
 
-  const openMatch = text.match(/[?&]id=([^&]+)/);
-  if (text.includes("drive.google.com") && openMatch) {
-    return `https://drive.google.com/uc?export=view&id=${openMatch[1]}`;
+  const idMatch = text.match(/[?&]id=([^&]+)/);
+  if (text.includes("drive.google.com") && idMatch) {
+    return `https://drive.google.com/thumbnail?id=${idMatch[1]}&sz=w1200`;
   }
 
   return text;
