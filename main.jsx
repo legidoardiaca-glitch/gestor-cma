@@ -1352,10 +1352,29 @@ function TypeDonut({ title, data }) {
 function formatDistrictName(value) {
   return String(value || "")
     .replace(/^\d+\s*/, "")
-    .replace(/([a-zà-ÿ])([A-ZÀ-Ÿ])/g, "$1 $2")
+    .replace(/([a-zàèéíïòóúüç])([A-ZÀÈÉÍÏÒÓÚÜÇ])/g, "$1 $2")
+    .replace(/\s*-\s*/g, "-")
     .replace(/\s+/g, " ")
     .trim()
     .toUpperCase();
+}
+
+function DistrictYAxisTick({ x, y, payload }) {
+  return (
+    <text
+      x={x}
+      y={y}
+      dy={4}
+      textAnchor="end"
+      fill="#555"
+      fontSize={11}
+      style={{
+        whiteSpace: "nowrap",
+      }}
+    >
+      {payload.value}
+    </text>
+  );
 }
 
 function DistrictBars({ title, data }) {
@@ -1379,14 +1398,11 @@ function DistrictBars({ title, data }) {
             <YAxis
   type="category"
   dataKey="label"
-  width={150}
+  width={190}
   tickLine={false}
   axisLine={false}
-  tick={{
-    fontSize: 11,
-    fill: "#555",
-    textAnchor: "end",
-  }}
+  interval={0}
+  tick={<DistrictYAxisTick />}
 />
             <Tooltip />
             <Bar dataKey="value" fill="#2f6fdd" radius={[0, 7, 7, 0]} />
