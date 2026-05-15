@@ -213,22 +213,53 @@ function normalizeTime(value) {
 }
 
 
-function normalizeImageUrl(url) {
+function getDriveFileId(url) {
   const text = String(url || "").trim();
 
-  if (!text) return "";
+  if (!text.includes("drive.google.com")) return "";
 
-  const fileMatch = text.match(/drive\.google\.com\/file\/d\/([^/]+)/);
-  if (fileMatch) {
-    return `https://drive.google.com/thumbnail?id=${fileMatch[1]}&sz=w1200`;
+  const fileMatch = text.match(/drive\.google\.com\/file\/d\/([^/?#]+)/);
+  if (fileMatch) return fileMatch[1];
+
+  const idMatch = text.match(/[?&]id=([^&#]+)/);
+  if (idMatch) return idMatch[1];
+
+  const ucMatch = text.match(/drive\.google\.com\/uc\?[^#]*id=([^&#]+)/);
+  if (ucMatch) return ucMatch[1];
+
+  return "";
+}
+
+function uniqueValues(values) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function getImageUrls(url) {
+  const text = String(url || "").trim();
+
+  if (!text) return [];
+
+  const driveId = getDriveFileId(text);
+
+  if (driveId) {
+    return uniqueValues([
+      `https://drive.google.com/thumbnail?id=${driveId}&sz=w1600`,
+      `https://drive.google.com/uc?export=view&id=${driveId}`,
+      `https://drive.google.com/uc?id=${driveId}`,
+      text,
+    ]);
   }
 
-  const idMatch = text.match(/[?&]id=([^&]+)/);
-  if (text.includes("drive.google.com") && idMatch) {
-    return `https://drive.google.com/thumbnail?id=${idMatch[1]}&sz=w1200`;
-  }
+  return [text];
+}
 
-  return text;
+function normalizeImageUrl(url) {
+  return getImageUrls(url)[0] || "";
+}
+
+function getDrivePreviewUrl(url) {
+  const driveId = getDriveFileId(url);
+  return driveId ? `https://drive.google.com/file/d/${driveId}/preview` : "";
 }
 
 function getSafeFileName(value) {
@@ -545,12 +576,21 @@ function ActivityCard({ row, selected, onClick }) {
 function Detail({ row, onSearchRelated, onChangeView }) {
   const [tab, setTab] = useState("general");
   const [exporting, setExporting] = useState(false);
+  const [imageFallbackIndex, setImageFallbackIndex] = useState(0);
+  const [showDrivePreview, setShowDrivePreview] = useState(false);
   const detailRef = useRef(null);
+
+  useEffect(() => {
+    setImageFallbackIndex(0);
+    setShowDrivePreview(false);
+  }, [row?._row, row?.idIntern, row?.imatge]);
 
   if (!row) return <div className="panel">Selecciona una activitat.</div>;
 
   const errors = getErrors(row);
-  const imageUrl = normalizeImageUrl(row.imatge);
+  const imageUrls = getImageUrls(row.imatge);
+  const imageUrl = imageUrls[imageFallbackIndex] || "";
+  const drivePreviewUrl = getDrivePreviewUrl(row.imatge);
   const fileBase = `activitat-${getSafeFileName(row.idIntern || row.idWeb || row.titolWeb || row.titol)}`;
 
   async function exportActivity(type) {
@@ -633,10 +673,33 @@ function Detail({ row, onSearchRelated, onChangeView }) {
       </div>
 
       <div className="hero">
-        {imageUrl ? (
+        {imageUrl || drivePreviewUrl ? (
           <div className="heroImageReal">
-            <img src={imageUrl} crossOrigin="anonymous" alt={row.titolWeb || row.titol || "Imatge de l'activitat"} />
-            <a href={imageUrl} target="_blank" rel="noreferrer">Obrir imatge</a>
+            {showDrivePreview && drivePreviewUrl ? (
+              <iframe
+                className="driveImagePreview"
+                src={drivePreviewUrl}
+                title={row.titolWeb || row.titol || "Imatge de l'activitat"}
+                allow="autoplay"
+              />
+            ) : (
+              <img
+                src={imageUrl}
+                alt={row.titolWeb || row.titol || "Imatge de l'activitat"}
+                referrerPolicy="no-referrer"
+                onError={() => {
+                  if (imageFallbackIndex < imageUrls.length - 1) {
+                    setImageFallbackIndex((current) => current + 1);
+                  } else {
+                    setShowDrivePreview(Boolean(drivePreviewUrl));
+                  }
+                }}
+              />
+            )}
+
+            <a href={row.imatge || imageUrl} target="_blank" rel="noreferrer">
+              Obrir imatge
+            </a>
           </div>
         ) : (
           <span>Sense imatge principal</span>
@@ -2200,6 +2263,13 @@ p { color: #666; }
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
+}
+
+.driveImagePreview {
+  width: 100%;
+  height: 100%;
+  border: 0;
   display: block;
 }
 
