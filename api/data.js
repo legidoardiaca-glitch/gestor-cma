@@ -34,7 +34,9 @@ export default async function handler(req, res) {
         const response = await fetch(batch.url);
 
         if (!response.ok) {
-          throw new Error(`Error carregant lot ${batch.batch}: ${response.status}`);
+          throw new Error(
+            `Error carregant lot ${batch.batch}: ${response.status}`
+          );
         }
 
         return response.json();
