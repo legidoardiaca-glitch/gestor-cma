@@ -1,9 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
-const API_URL =
-  "https://docs.google.com/spreadsheets/d/e/2PACX-1vRWPBpxuBECSh1kLS1Vm-gdmOQhWw6_aBUUsjrX3wMZlaL17IsIkhFrSa8ovmbMR-uFL07SeX5ClGOM/pub?gid=1637995479&single=true&output=csv";
-
+const INDEX_URL = "https://drive.google.com/uc?export=download&id=1BwnFNibQldZdARvdvoSAiJfpAOjKbY1X";
 function loadJsonp(url) {
   return new Promise((resolve, reject) => {
     const callbackName = `callback_${Date.now()}_${Math.round(Math.random() * 100000)}`;
