@@ -11,7 +11,8 @@
     "react-dom": "latest",
     "recharts": "latest",
     "html-to-image": "latest",
-    "jspdf": "latest"
+    "jspdf": "latest",
+    "@vercel/analytics": "latest"
   },
   "devDependencies": {}
 }
