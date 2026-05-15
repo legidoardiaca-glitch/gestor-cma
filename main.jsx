@@ -1094,7 +1094,10 @@ function DashboardView({ rows }) {
 
   return (
     <>
-      <Top title="Dashboard direcció" subtitle="Lectura visual general del programa: tipologies, territori, equips i calendari 2026." />
+      <Top
+        title="Dashboard direcció"
+        subtitle="Lectura visual general del programa: tipologies, territori, equips i calendari 2026."
+      />
 
       <div className="stats">
         <StatCard label="Passis" value={rows.length} />
@@ -1104,26 +1107,27 @@ function DashboardView({ rows }) {
         <StatCard label="Districtes" value={uniqueCount(rows, "districte")} />
       </div>
 
-      <div className="dashboardVisualGrid">
-        <PieChart title="Activitats per tipologia" data={categoryData} />
-        <DistrictMap title="Activitats per districte" data={districtData} />
+      <div className="dashboardQuadrants">
+        <DonutChart title="Activitats per tipologia" data={categoryData} />
+        <HorizontalBars title="Activitats per districte" data={districtData} />
         <VerticalBars title="Activitats per encarregada" data={managerData} />
-        <MonthCalendar title="Activitats per mes · 2026" data={monthData} />
+        <MonthBars title="Activitats per mes · 2026" data={monthData} />
       </div>
     </>
   );
 }
 
-function PieChart({ title, data }) {
+function DonutChart({ title, data }) {
   const entries = Object.entries(data)
     .filter(([name]) => name && name !== "Sense dades")
-    .sort((a, b) => b[1] - a[1]);
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8);
 
   const total = entries.reduce((sum, [, value]) => sum + value, 0) || 1;
-  let cumulative = 0;
 
+  let cumulative = 0;
   const gradient = entries
-    .map(([name, value], index) => {
+    .map(([, value], index) => {
       const start = (cumulative / total) * 100;
       cumulative += value;
       const end = (cumulative / total) * 100;
@@ -1132,20 +1136,26 @@ function PieChart({ title, data }) {
     .join(", ");
 
   return (
-    <div className="vizCard">
-      <div className="vizHeader">
-        <h2>{title}</h2>
-        <Badge>{total} passis</Badge>
+    <div className="dashboardCard">
+      <div className="dashboardCardHeader">
+        <div>
+          <h2>{title}</h2>
+          <p>{total} passis classificats</p>
+        </div>
+        <Badge>{entries.length} tipus</Badge>
       </div>
 
-      <div className="pieLayout">
-        <div className="pie" style={{ background: `conic-gradient(${gradient})` }}>
-          <div>{entries.length}<span>tipologies</span></div>
+      <div className="donutLayout">
+        <div className="donut" style={{ background: `conic-gradient(${gradient})` }}>
+          <div>
+            <strong>{total}</strong>
+            <span>passis</span>
+          </div>
         </div>
 
-        <div className="legend">
-          {entries.slice(0, 10).map(([name, value], index) => (
-            <div className="legendItem" key={name}>
+        <div className="chartLegend">
+          {entries.map(([name, value], index) => (
+            <div className="legendRow" key={name}>
               <i style={{ background: `var(--chart-${(index % 10) + 1})` }} />
               <span>{name}</span>
               <b>{value}</b>
@@ -1157,54 +1167,42 @@ function PieChart({ title, data }) {
   );
 }
 
-function DistrictMap({ title, data }) {
-  const districts = [
-    ["01 Ciutat Vella", "CV"],
-    ["02 Eixample", "EX"],
-    ["03 Sants-Montjuïc", "SM"],
-    ["04 Les Corts", "LC"],
-    ["05 Sarrià-Sant Gervasi", "SSG"],
-    ["06 Gràcia", "GR"],
-    ["07 Horta-Guinardó", "HG"],
-    ["08 Nou Barris", "NB"],
-    ["09 Sant Andreu", "SA"],
-    ["10 Sant Martí", "ST"],
-  ];
+function HorizontalBars({ title, data }) {
+  const entries = Object.entries(data)
+    .filter(([name]) => name && name !== "Sense dades")
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
 
-  function getValue(name) {
-    const found = Object.entries(data).find(([key]) =>
-      String(key).toLowerCase().includes(name.slice(3).toLowerCase()) ||
-      String(key).startsWith(name.slice(0, 2))
-    );
-    return found ? found[1] : 0;
-  }
-
-  const max = Math.max(...districts.map(([name]) => getValue(name)), 1);
+  const max = Math.max(...entries.map(([, value]) => value), 1);
+  const total = entries.reduce((sum, [, value]) => sum + value, 0);
 
   return (
-    <div className="vizCard">
-      <div className="vizHeader">
-        <h2>{title}</h2>
-        <Badge>{Object.values(data).reduce((a, b) => a + b, 0)} passis</Badge>
+    <div className="dashboardCard">
+      <div className="dashboardCardHeader">
+        <div>
+          <h2>{title}</h2>
+          <p>{total} passis amb districte</p>
+        </div>
+        <Badge>{entries.length} districtes</Badge>
       </div>
 
-      <div className="districtMap">
-        {districts.map(([name, short], index) => {
-          const value = getValue(name);
-          const intensity = value / max;
-          return (
-            <div
-              key={name}
-              className={`districtCell d${index + 1}`}
-              style={{ opacity: 0.35 + intensity * 0.65 }}
-              title={`${name}: ${value}`}
-            >
-              <strong>{short}</strong>
-              <span>{value}</span>
-              <small>{name.replace(/^\d+\s/, "")}</small>
+      <div className="horizontalBars">
+        {entries.map(([name, value], index) => (
+          <div className="horizontalBarRow" key={name}>
+            <div className="barLabel">
+              <span>{name}</span>
+              <b>{value}</b>
             </div>
-          );
-        })}
+            <div className="barTrack">
+              <i
+                style={{
+                  width: `${Math.max(3, (value / max) * 100)}%`,
+                  background: `var(--chart-${(index % 10) + 1})`,
+                }}
+              />
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -1219,25 +1217,27 @@ function VerticalBars({ title, data }) {
   const max = Math.max(...entries.map(([, value]) => value), 1);
 
   return (
-    <div className="vizCard">
-      <div className="vizHeader">
-        <h2>{title}</h2>
+    <div className="dashboardCard">
+      <div className="dashboardCardHeader">
+        <div>
+          <h2>{title}</h2>
+          <p>Distribució per equip responsable</p>
+        </div>
         <Badge>{entries.length} equips</Badge>
       </div>
 
-      <div className="verticalBars">
+      <div className="verticalChart">
         {entries.map(([name, value], index) => (
-          <div className="vBarItem" key={name}>
-            <div className="vBarWrap">
-              <div
-                className="vBar"
+          <div className="verticalItem" key={name}>
+            <div className="verticalValue">{value}</div>
+            <div className="verticalTrack">
+              <i
                 style={{
                   height: `${Math.max(8, (value / max) * 100)}%`,
                   background: `var(--chart-${(index % 10) + 1})`,
                 }}
               />
             </div>
-            <b>{value}</b>
             <span>{name}</span>
           </div>
         ))}
@@ -1246,41 +1246,51 @@ function VerticalBars({ title, data }) {
   );
 }
 
-function MonthCalendar({ title, data }) {
+function MonthBars({ title, data }) {
   const months = [
-    ["2026-01", "Gener"],
-    ["2026-02", "Febrer"],
-    ["2026-03", "Març"],
-    ["2026-04", "Abril"],
-    ["2026-05", "Maig"],
-    ["2026-06", "Juny"],
-    ["2026-07", "Juliol"],
-    ["2026-08", "Agost"],
-    ["2026-09", "Setembre"],
-    ["2026-10", "Octubre"],
-    ["2026-11", "Novembre"],
-    ["2026-12", "Desembre"],
+    ["2026-01", "Gen"],
+    ["2026-02", "Feb"],
+    ["2026-03", "Mar"],
+    ["2026-04", "Abr"],
+    ["2026-05", "Mai"],
+    ["2026-06", "Jun"],
+    ["2026-07", "Jul"],
+    ["2026-08", "Ago"],
+    ["2026-09", "Set"],
+    ["2026-10", "Oct"],
+    ["2026-11", "Nov"],
+    ["2026-12", "Des"],
   ];
 
   const max = Math.max(...months.map(([key]) => data[key] || 0), 1);
+  const total = months.reduce((sum, [key]) => sum + (data[key] || 0), 0);
 
   return (
-    <div className="vizCard">
-      <div className="vizHeader">
-        <h2>{title}</h2>
+    <div className="dashboardCard">
+      <div className="dashboardCardHeader">
+        <div>
+          <h2>{title}</h2>
+          <p>{total} passis amb data vàlida</p>
+        </div>
         <Badge>12 mesos</Badge>
       </div>
 
-      <div className="monthDashboard">
-        {months.map(([key, label]) => {
+      <div className="monthBars">
+        {months.map(([key, label], index) => {
           const value = data[key] || 0;
+
           return (
-            <div className="monthDashCell" key={key}>
-              <span>{label}</span>
-              <strong>{value}</strong>
-              <div>
-                <i style={{ width: `${(value / max) * 100}%` }} />
+            <div className="monthBarItem" key={key}>
+              <div className="monthValue">{value}</div>
+              <div className="monthTrack">
+                <i
+                  style={{
+                    height: `${Math.max(4, (value / max) * 100)}%`,
+                    background: `var(--chart-${(index % 10) + 1})`,
+                  }}
+                />
               </div>
+              <span>{label}</span>
             </div>
           );
         })}
@@ -1288,7 +1298,6 @@ function MonthCalendar({ title, data }) {
     </div>
   );
 }
-
 
 function Chart({ title, data }) {
   const entries = Object.entries(data).sort((a, b) => b[1] - a[1]).slice(0, 12);
