@@ -8,7 +8,10 @@
     "@vitejs/plugin-react": "latest",
     "vite": "latest",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "recharts": "latest",
+    "html-to-image": "latest",
+    "jspdf": "latest"
   },
   "devDependencies": {}
 }
