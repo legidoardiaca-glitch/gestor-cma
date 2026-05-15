@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
-const DATA_URL = "https://gestor-cma.vercel.app//api/data";
+const DATA_URL = "/api/data";
 
 function loadJsonp(url) {
   return new Promise((resolve, reject) => {
@@ -1598,7 +1598,7 @@ p { color: #666; }
 .quickActions button { border: 1px solid #ddd; background: #fff; border-radius: 999px; padding: 8px 11px; font-size: 12px; font-weight: 800; }
 .quickActions button:hover { background: #111; color: #fff; border-color: #111; }
 
-
+    
 .clickable { width: 100%; border: 0; background: transparent; text-align: left; cursor: pointer; }
 .clickable:hover { background: #f5f5f3; }
 .monthMini { display: block; width: 100%; border: 0; background: #fff; border-radius: 10px; padding: 6px 7px; margin-top: 5px; text-align: left; font-size: 11px; line-height: 1.25; white-space: normal; }
