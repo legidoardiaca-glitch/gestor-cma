@@ -1,7 +1,65 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  PieChart,
+  Pie,
+  Cell,
+  CartesianGrid,
+} from "recharts";
+import { toJpeg, toPng } from "html-to-image";
+import jsPDF from "jspdf";
 import { createRoot } from "react-dom/client";
 
 const DATA_URL = "/api/data";
+
+const CHART_COLORS = [
+  "#2f6fdd",
+  "#de7a3b",
+  "#4aa79c",
+  "#8b74d6",
+  "#e7b84e",
+  "#e6b7ad",
+  "#8cb7dc",
+  "#b8b8b8",
+  "#6f8f72",
+  "#9b6f8f",
+];
+
+function downloadDataUrl(dataUrl, fileName) {
+  const link = document.createElement("a");
+  link.download = fileName;
+  link.href = dataUrl;
+  link.click();
+}
+
+function formatCompactDate(dateString) {
+  if (!dateString || dateString === "—") return "—";
+  const date = new Date(`${dateString}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return dateString;
+
+  return date.toLocaleDateString("ca-ES", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function toChartEntries(data, limit = 10) {
+  return Object.entries(data)
+    .filter(([name]) => name && name !== "Sense dades")
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([name, value], index) => ({
+      name,
+      value,
+      color: CHART_COLORS[index % CHART_COLORS.length],
+    }));
+}
 
 function loadJsonp(url) {
   return new Promise((resolve, reject) => {
@@ -339,15 +397,29 @@ function Badge({ children, tone = "neutral" }) {
   return <span className={`badge ${tone}`}>{children}</span>;
 }
 
+
+function BrandMark({ className = "" }) {
+  return (
+    <div className={`brand ${className}`}>
+      <img
+        className="brandLogo"
+        src="/logo.png"
+        alt="Barcelona Capital Mundial de l'Arquitectura"
+      />
+      <div className="brandText">
+        <div>BARCELONA</div>
+        <div>CAPITAL MUNDIAL</div>
+        <div>DE L'ARQUITECTURA</div>
+      </div>
+    </div>
+  );
+}
+
 function Shell({ children, view, setView, rows, status, userName, role, onLogout }) {
   return (
     <main className="app">
       <aside className="sidebar">
-        <div className="brand">
-          <div>BARCELONA</div>
-          <div>CAPITAL MUNDIAL</div>
-          <div>DE L'ARQUITECTURA</div>
-        </div>
+        <BrandMark />
 
         <nav>
           {[
@@ -1081,7 +1153,11 @@ function SpaceDetail({ space, onOpenActivity }) {
 }
 
 
+
 function DashboardView({ rows }) {
+  const dashboardRef = useRef(null);
+  const [exporting, setExporting] = useState(false);
+
   const categoryData = countBy(rows, "categoria");
   const districtData = countBy(rows, "districte");
   const managerData = countBy(rows, "encarregada");
@@ -1092,161 +1168,241 @@ function DashboardView({ rows }) {
     "mes"
   );
 
+  const dateRange = getDateRange(rows);
+  const dateLabel = `${formatCompactDate(dateRange.start)} – ${formatCompactDate(dateRange.end)}`;
+
+  async function exportDashboard(type) {
+    if (!dashboardRef.current || exporting) return;
+
+    setExporting(true);
+
+    try {
+      const node = dashboardRef.current;
+      const fileBase = `dashboard-cma-${new Date().toISOString().slice(0, 10)}`;
+
+      if (type === "jpg") {
+        const dataUrl = await toJpeg(node, {
+          quality: 0.96,
+          backgroundColor: "#f7f7f5",
+          pixelRatio: 2,
+          cacheBust: true,
+        });
+
+        downloadDataUrl(dataUrl, `${fileBase}.jpg`);
+      }
+
+      if (type === "png") {
+        const dataUrl = await toPng(node, {
+          backgroundColor: "#f7f7f5",
+          pixelRatio: 2,
+          cacheBust: true,
+        });
+
+        downloadDataUrl(dataUrl, `${fileBase}.png`);
+      }
+
+      if (type === "pdf") {
+        const dataUrl = await toPng(node, {
+          backgroundColor: "#f7f7f5",
+          pixelRatio: 2,
+          cacheBust: true,
+        });
+
+        const width = node.offsetWidth;
+        const height = node.offsetHeight;
+        const pdf = new jsPDF({
+          orientation: "landscape",
+          unit: "px",
+          format: [width, height],
+        });
+
+        pdf.addImage(dataUrl, "PNG", 0, 0, width, height);
+        pdf.save(`${fileBase}.pdf`);
+      }
+    } catch (err) {
+      alert(`No s'ha pogut exportar el dashboard: ${err.message}`);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
-    <>
+    <div ref={dashboardRef} className="dashboardExportArea">
       <Top
         title="Dashboard direcció"
-        subtitle="Lectura visual general del programa: tipologies, territori, equips i calendari 2026."
-      />
+        subtitle="Visió general de la gestió del programa: tipologies, territori, equips i calendari 2026."
+      >
+        <div className="dashboardTopControls">
+          <div className="dateRangePill">📅 {dateLabel}</div>
+          <div className="exportButtons">
+            <button type="button" disabled={exporting} onClick={() => exportDashboard("png")}>
+              {exporting ? "Exportant..." : "PNG"}
+            </button>
+            <button type="button" disabled={exporting} onClick={() => exportDashboard("jpg")}>
+              JPG
+            </button>
+            <button type="button" disabled={exporting} onClick={() => exportDashboard("pdf")}>
+              PDF
+            </button>
+          </div>
+        </div>
+      </Top>
 
-      <div className="stats">
-        <StatCard label="Passis" value={rows.length} />
-        <StatCard label="Propostes" value={uniqueCount(rows, "id")} />
-        <StatCard label="Activitats web" value={uniqueCount(rows, "idWeb")} />
-        <StatCard label="Espais" value={uniqueCount(rows, "espai")} />
-        <StatCard label="Districtes" value={uniqueCount(rows, "districte")} />
+      <div className="stats dashboardStats">
+        <KpiCard icon="🎟️" tone="blue" label="Passis" value={rows.length} />
+        <KpiCard icon="📄" tone="green" label="Propostes" value={uniqueCount(rows, "id")} />
+        <KpiCard icon="🌐" tone="purple" label="Activitats web" value={uniqueCount(rows, "idWeb")} />
+        <KpiCard icon="🏛️" tone="yellow" label="Espais" value={uniqueCount(rows, "espai")} />
+        <KpiCard icon="📍" tone="peach" label="Districtes" value={uniqueCount(rows, "districte")} />
       </div>
 
-      <div className="dashboardQuadrants">
-        <DonutChart title="Activitats per tipologia" data={categoryData} />
-        <HorizontalBars title="Activitats per districte" data={districtData} />
-        <VerticalBars title="Activitats per encarregada" data={managerData} />
-        <MonthBars title="Activitats per mes · 2026" data={monthData} />
+      <div className="dashboardChartsGrid">
+        <TypeDonut title="Activitats per tipologia" data={categoryData} />
+        <DistrictBars title="Activitats per districte" data={districtData} />
+        <ManagerBars title="Activitats per encarregada" data={managerData} />
+        <MonthBarChart title="Activitats per mes · 2026" data={monthData} />
       </div>
-    </>
+    </div>
   );
 }
 
-function DonutChart({ title, data }) {
-  const entries = Object.entries(data)
-    .filter(([name]) => name && name !== "Sense dades")
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8);
-
-  const total = entries.reduce((sum, [, value]) => sum + value, 0) || 1;
-
-  let cumulative = 0;
-  const gradient = entries
-    .map(([, value], index) => {
-      const start = (cumulative / total) * 100;
-      cumulative += value;
-      const end = (cumulative / total) * 100;
-      return `var(--chart-${(index % 10) + 1}) ${start}% ${end}%`;
-    })
-    .join(", ");
-
+function KpiCard({ icon, tone, label, value }) {
   return (
-    <div className="dashboardCard">
-      <div className="dashboardCardHeader">
-        <div>
+    <div className="kpiCard">
+      <div className={`kpiIcon ${tone}`}>{icon}</div>
+      <div>
+        <div className="kpiValue">{value}</div>
+        <div className="kpiLabel">{label}</div>
+      </div>
+    </div>
+  );
+}
+
+function ChartCard({ title, totalLabel, icon, children }) {
+  return (
+    <section className="chartCard">
+      <div className="chartCardHeader">
+        <div className="chartTitle">
+          <span>{icon}</span>
           <h2>{title}</h2>
-          <p>{total} passis classificats</p>
         </div>
-        <Badge>{entries.length} tipus</Badge>
+        <span className="chartTotal">{totalLabel}</span>
       </div>
 
-      <div className="donutLayout">
-        <div className="donut" style={{ background: `conic-gradient(${gradient})` }}>
-          <div>
+      {children}
+
+      <button className="detailLink" type="button">
+        Veure detall →
+      </button>
+    </section>
+  );
+}
+
+function TypeDonut({ title, data }) {
+  const entries = toChartEntries(data, 8);
+  const total = entries.reduce((sum, item) => sum + item.value, 0) || 1;
+  const chartData = entries.map((item) => ({
+    ...item,
+    percent: Math.round((item.value / total) * 100),
+  }));
+
+  return (
+    <ChartCard title={title} icon="◔" totalLabel={`Total: ${total} activitats`}>
+      <div className="donutCardBody">
+        <div className="donutWrap">
+          <ResponsiveContainer width="100%" height={260}>
+            <PieChart>
+              <Pie
+                data={chartData}
+                dataKey="value"
+                nameKey="name"
+                innerRadius={68}
+                outerRadius={110}
+                paddingAngle={1}
+                label={({ percent }) => `${percent}%`}
+              >
+                {chartData.map((entry) => (
+                  <Cell key={entry.name} fill={entry.color} />
+                ))}
+              </Pie>
+              <Tooltip formatter={(value, name) => [value, name]} />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="donutCenter">
             <strong>{total}</strong>
-            <span>passis</span>
+            <span>activitats</span>
           </div>
         </div>
 
-        <div className="chartLegend">
-          {entries.map(([name, value], index) => (
-            <div className="legendRow" key={name}>
-              <i style={{ background: `var(--chart-${(index % 10) + 1})` }} />
-              <span>{name}</span>
-              <b>{value}</b>
+        <div className="donutLegend">
+          {chartData.map((item) => (
+            <div className="donutLegendRow" key={item.name}>
+              <i style={{ background: item.color }} />
+              <span>{item.name}</span>
+              <b>{item.value}</b>
+              <em>{item.percent}%</em>
             </div>
           ))}
         </div>
       </div>
-    </div>
+    </ChartCard>
   );
 }
 
-function HorizontalBars({ title, data }) {
-  const entries = Object.entries(data)
-    .filter(([name]) => name && name !== "Sense dades")
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10);
-
-  const max = Math.max(...entries.map(([, value]) => value), 1);
-  const total = entries.reduce((sum, [, value]) => sum + value, 0);
+function DistrictBars({ title, data }) {
+  const entries = toChartEntries(data, 10);
+  const total = entries.reduce((sum, item) => sum + item.value, 0);
 
   return (
-    <div className="dashboardCard">
-      <div className="dashboardCardHeader">
-        <div>
-          <h2>{title}</h2>
-          <p>{total} passis amb districte</p>
-        </div>
-        <Badge>{entries.length} districtes</Badge>
+    <ChartCard title={title} icon="▰" totalLabel={`Total: ${total} activitats`}>
+      <div className="chartBody">
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart
+            data={entries}
+            layout="vertical"
+            margin={{ top: 12, right: 34, bottom: 10, left: 92 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+            <XAxis type="number" tickLine={false} axisLine={false} />
+            <YAxis
+              type="category"
+              dataKey="name"
+              width={92}
+              tickLine={false}
+              axisLine={false}
+              tick={{ fontSize: 12 }}
+            />
+            <Tooltip />
+            <Bar dataKey="value" fill="#2f6fdd" radius={[0, 7, 7, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
       </div>
-
-      <div className="horizontalBars">
-        {entries.map(([name, value], index) => (
-          <div className="horizontalBarRow" key={name}>
-            <div className="barLabel">
-              <span>{name}</span>
-              <b>{value}</b>
-            </div>
-            <div className="barTrack">
-              <i
-                style={{
-                  width: `${Math.max(3, (value / max) * 100)}%`,
-                  background: `var(--chart-${(index % 10) + 1})`,
-                }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
+    </ChartCard>
   );
 }
 
-function VerticalBars({ title, data }) {
-  const entries = Object.entries(data)
-    .filter(([name]) => name && name !== "Sense dades")
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8);
-
-  const max = Math.max(...entries.map(([, value]) => value), 1);
+function ManagerBars({ title, data }) {
+  const entries = toChartEntries(data, 8);
+  const total = entries.length;
 
   return (
-    <div className="dashboardCard">
-      <div className="dashboardCardHeader">
-        <div>
-          <h2>{title}</h2>
-          <p>Distribució per equip responsable</p>
-        </div>
-        <Badge>{entries.length} equips</Badge>
+    <ChartCard title={title} icon="♙" totalLabel={`Total: ${total} encarregades`}>
+      <div className="chartBody">
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={entries} margin={{ top: 22, right: 16, bottom: 18, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fontSize: 12 }} />
+            <YAxis tickLine={false} axisLine={false} />
+            <Tooltip />
+            <Bar dataKey="value" fill="#4aa79c" radius={[8, 8, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
       </div>
-
-      <div className="verticalChart">
-        {entries.map(([name, value], index) => (
-          <div className="verticalItem" key={name}>
-            <div className="verticalValue">{value}</div>
-            <div className="verticalTrack">
-              <i
-                style={{
-                  height: `${Math.max(8, (value / max) * 100)}%`,
-                  background: `var(--chart-${(index % 10) + 1})`,
-                }}
-              />
-            </div>
-            <span>{name}</span>
-          </div>
-        ))}
-      </div>
-    </div>
+    </ChartCard>
   );
 }
 
-function MonthBars({ title, data }) {
+function MonthBarChart({ title, data }) {
   const months = [
     ["2026-01", "Gen"],
     ["2026-02", "Feb"],
@@ -1262,40 +1418,27 @@ function MonthBars({ title, data }) {
     ["2026-12", "Des"],
   ];
 
-  const max = Math.max(...months.map(([key]) => data[key] || 0), 1);
-  const total = months.reduce((sum, [key]) => sum + (data[key] || 0), 0);
+  const entries = months.map(([key, name]) => ({
+    name,
+    value: data[key] || 0,
+  }));
+
+  const total = entries.reduce((sum, item) => sum + item.value, 0);
 
   return (
-    <div className="dashboardCard">
-      <div className="dashboardCardHeader">
-        <div>
-          <h2>{title}</h2>
-          <p>{total} passis amb data vàlida</p>
-        </div>
-        <Badge>12 mesos</Badge>
+    <ChartCard title={title} icon="▣" totalLabel={`Total: ${total} activitats`}>
+      <div className="chartBody">
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={entries} margin={{ top: 22, right: 16, bottom: 18, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fontSize: 12 }} />
+            <YAxis tickLine={false} axisLine={false} />
+            <Tooltip />
+            <Bar dataKey="value" fill="#2f6fdd" radius={[8, 8, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
       </div>
-
-      <div className="monthBars">
-        {months.map(([key, label], index) => {
-          const value = data[key] || 0;
-
-          return (
-            <div className="monthBarItem" key={key}>
-              <div className="monthValue">{value}</div>
-              <div className="monthTrack">
-                <i
-                  style={{
-                    height: `${Math.max(4, (value / max) * 100)}%`,
-                    background: `var(--chart-${(index % 10) + 1})`,
-                  }}
-                />
-              </div>
-              <span>{label}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    </ChartCard>
   );
 }
 
@@ -1322,11 +1465,7 @@ function LoginScreen({ userName, setUserName, role, setRole, onEnter }) {
   return (
     <div className="loginScreen">
       <div className="loginCard">
-        <div className="brand loginBrand">
-          <div>BARCELONA</div>
-          <div>CAPITAL MUNDIAL</div>
-          <div>DE L'ARQUITECTURA</div>
-        </div>
+        <BrandMark className="loginBrand" />
         <p className="eyebrow">Gestor de programació</p>
         <h1>Accés al visor</h1>
         <p>Identificació interna per adaptar la lectura de la plataforma.</p>
@@ -1504,7 +1643,9 @@ button, input { font: inherit; }
 button { cursor: pointer; }
 .app { display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; }
 .sidebar { background: #fff; border-right: 1px solid #ddd; padding: 30px; position: sticky; top: 0; height: 100vh; }
-.brand { font-size: 21px; line-height: 1.02; font-weight: 900; letter-spacing: -0.03em; margin-bottom: 46px; }
+.brand { display: flex; align-items: flex-start; gap: 10px; font-size: 15px; line-height: 1.05; font-weight: 900; letter-spacing: -0.035em; margin-bottom: 42px; }
+.brandLogo { width: 42px; height: auto; flex-shrink: 0; margin-top: 1px; }
+.brandText { display: grid; gap: 1px; }
 nav button { width: 100%; border: 0; background: transparent; text-align: left; padding: 14px 16px; border-radius: 16px; margin-bottom: 8px; font-weight: 650; }
 nav button.active, nav button:hover { background: #efefed; }
 .sideMeta { position: absolute; left: 30px; right: 30px; bottom: 30px; background: #f3f3f1; border-radius: 20px; padding: 18px; }
@@ -1630,6 +1771,52 @@ p { color: #666; }
   .districtMap { grid-template-columns: repeat(2, 1fr); grid-template-rows: none; }
   .districtCell, .districtCell.d1, .districtCell.d2, .districtCell.d3, .districtCell.d4, .districtCell.d5, .districtCell.d6, .districtCell.d7, .districtCell.d8, .districtCell.d9, .districtCell.d10 { grid-column: auto; grid-row: auto; }
 }
+
+
+/* Dashboard mockup style */
+.dashboardExportArea { width: 100%; }
+.dashboardTopControls { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; }
+.dateRangePill, .exportButtons { background: #fff; border: 1px solid #ddd; border-radius: 12px; min-height: 42px; display: inline-flex; align-items: center; box-shadow: 0 1px 0 rgba(0,0,0,.02); }
+.dateRangePill { padding: 0 14px; font-size: 13px; color: #333; white-space: nowrap; }
+.exportButtons { overflow: hidden; }
+.exportButtons button { border: 0; border-right: 1px solid #eee; background: #fff; padding: 0 13px; height: 42px; font-weight: 800; font-size: 12px; }
+.exportButtons button:last-child { border-right: 0; }
+.exportButtons button:hover { background: #f3f3f1; }
+.exportButtons button:disabled { opacity: .55; cursor: wait; }
+.dashboardStats { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; margin: 26px 0 18px; }
+.kpiCard { background: #fff; border: 1px solid #ddd; border-radius: 22px; padding: 22px; min-height: 100px; display: flex; align-items: center; gap: 18px; box-shadow: 0 10px 24px rgba(0,0,0,.045); }
+.kpiIcon { width: 62px; height: 62px; border-radius: 50%; display: grid; place-items: center; font-size: 26px; flex-shrink: 0; }
+.kpiIcon.blue { background: #dfeeff; }
+.kpiIcon.green { background: #ddf4e6; }
+.kpiIcon.purple { background: #e7e2ff; }
+.kpiIcon.yellow { background: #fff0c6; }
+.kpiIcon.peach { background: #ffe1d5; }
+.kpiValue { font-size: 31px; font-weight: 900; line-height: 1; letter-spacing: -0.04em; }
+.kpiLabel { color: #555; margin-top: 7px; font-size: 15px; }
+.dashboardChartsGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.chartCard { background: #fff; border: 1px solid #ddd; border-radius: 22px; padding: 22px; min-height: 360px; box-shadow: 0 10px 24px rgba(0,0,0,.045); position: relative; }
+.chartCardHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.chartTitle { display: flex; align-items: center; gap: 10px; }
+.chartTitle > span { width: 24px; height: 24px; display: grid; place-items: center; color: #333; font-size: 20px; }
+.chartTitle h2 { margin: 0; font-size: 20px; }
+.chartTotal { background: #f3f3f1; border: 1px solid #eee; border-radius: 999px; padding: 7px 11px; font-size: 12px; color: #555; white-space: nowrap; }
+.chartBody { height: 300px; }
+.donutCardBody { display: grid; grid-template-columns: 300px 1fr; gap: 24px; align-items: center; min-height: 290px; }
+.donutWrap { position: relative; height: 260px; }
+.donutCenter { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; text-align: center; }
+.donutCenter strong { display: block; font-size: 28px; line-height: 1; }
+.donutCenter span { display: block; margin-top: 5px; color: #555; font-size: 13px; }
+.donutLegend { display: grid; gap: 10px; }
+.donutLegendRow { display: grid; grid-template-columns: 12px minmax(120px, 1fr) 42px 42px; gap: 9px; align-items: center; font-size: 13px; }
+.donutLegendRow i { width: 10px; height: 10px; border-radius: 50%; }
+.donutLegendRow b, .donutLegendRow em { text-align: right; font-style: normal; font-weight: 800; }
+.donutLegendRow em { color: #555; }
+.detailLink { position: absolute; right: 22px; bottom: 18px; border: 0; background: transparent; color: #1d5fd0; font-weight: 800; padding: 0; font-size: 13px; }
+.recharts-cartesian-axis-tick-value { fill: #555; }
+.recharts-default-tooltip { border-radius: 12px !important; border-color: #ddd !important; }
+@media (max-width: 1280px) { .donutCardBody { grid-template-columns: 1fr; } .donutWrap { max-width: 320px; width: 100%; margin: 0 auto; } }
+@media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
+@media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
 `;
 
 
