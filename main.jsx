@@ -1505,12 +1505,6 @@ function parseCoordinate(value) {
 }
 
 function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
-  const mapRef = useRef(null);
-  const mapInstance = useRef(null);
-  const tileLayer = useRef(null);
-  const markersLayer = useRef(null);
-  const selectedLayer = useRef(null);
-
   const pointData = useMemo(() => {
     return spaces
       .map((space) => {
@@ -1530,122 +1524,72 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
       .filter(Boolean);
   }, [spaces]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    loadLeafletAssets().then((L) => {
-      if (cancelled || !mapRef.current) return;
-
-      if (!mapInstance.current) {
-        mapInstance.current = L.map(mapRef.current, {
-          center: [41.3874, 2.1686],
-          zoom: 12,
-          zoomControl: true,
-          scrollWheelZoom: true,
-        });
-      }
-
-      const base = getMapBaseLayer(baseMap);
-
-      if (tileLayer.current) {
-        mapInstance.current.removeLayer(tileLayer.current);
-      }
-
-      tileLayer.current = L.tileLayer(base.url, {
-        attribution: base.attribution,
-        maxZoom: 19,
-      });
-
-      tileLayer.current.addTo(mapInstance.current);
-
-      setTimeout(() => {
-        mapInstance.current?.invalidateSize();
-      }, 300);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [baseMap]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    loadLeafletAssets().then((L) => {
-      if (cancelled || !mapInstance.current) return;
-
-      if (markersLayer.current) {
-        mapInstance.current.removeLayer(markersLayer.current);
-      }
-
-      markersLayer.current = L.layerGroup();
-
-      const bounds = [];
-
-      pointData.forEach((point) => {
-        const marker = L.marker([point.lat, point.lon], {
-          icon: L.divIcon({
-            className: "simpleSpaceMarker",
-            html: `<button type="button" title="${point.title}">${point.count || ""}</button>`,
-            iconSize: [28, 28],
-            iconAnchor: [14, 14],
-          }),
-        });
-
-        marker.on("click", () => {
-          setSelectedName(point.title);
-        });
-
-        marker.addTo(markersLayer.current);
-        bounds.push([point.lat, point.lon]);
-      });
-
-      markersLayer.current.addTo(mapInstance.current);
-
-      if (bounds.length > 1) {
-        mapInstance.current.fitBounds(bounds, { padding: [30, 30] });
-      } else if (bounds.length === 1) {
-        mapInstance.current.setView(bounds[0], 15);
-      }
-
-      setTimeout(() => {
-        mapInstance.current?.invalidateSize();
-      }, 300);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [pointData, setSelectedName]);
-
-  useEffect(() => {
-    if (!mapInstance.current || !selected?.latitud || !selected?.longitud || !window.L) return;
-
-    const L = window.L;
-    const lat = parseCoordinate(selected.latitud);
-    const lon = parseCoordinate(selected.longitud);
-
-    if (lat === null || lon === null) return;
-
-    if (selectedLayer.current) {
-      mapInstance.current.removeLayer(selectedLayer.current);
+  const bounds = useMemo(() => {
+    if (!pointData.length) {
+      return {
+        minLat: 41.30,
+        maxLat: 41.48,
+        minLon: 2.04,
+        maxLon: 2.28,
+      };
     }
 
-    selectedLayer.current = L.circle([lat, lon], {
-      radius: 80,
-      color: "#111",
-      weight: 3,
-      fillColor: "#111",
-      fillOpacity: 0.12,
-    });
+    const lats = pointData.map((p) => p.lat);
+    const lons = pointData.map((p) => p.lon);
+    const paddingLat = 0.018;
+    const paddingLon = 0.018;
 
-    selectedLayer.current.addTo(mapInstance.current);
-    mapInstance.current.setView([lat, lon], 15);
-  }, [selected]);
+    return {
+      minLat: Math.min(...lats) - paddingLat,
+      maxLat: Math.max(...lats) + paddingLat,
+      minLon: Math.min(...lons) - paddingLon,
+      maxLon: Math.max(...lons) + paddingLon,
+    };
+  }, [pointData]);
+
+  const baseSrc =
+    baseMap === "osm"
+      ? `https://www.openstreetmap.org/export/embed.html?bbox=${bounds.minLon}%2C${bounds.minLat}%2C${bounds.maxLon}%2C${bounds.maxLat}&layer=mapnik`
+      : `https://www.openstreetmap.org/export/embed.html?bbox=${bounds.minLon}%2C${bounds.minLat}%2C${bounds.maxLon}%2C${bounds.maxLat}&layer=mapnik`;
+
+  function getPointStyle(point) {
+    const x = ((point.lon - bounds.minLon) / (bounds.maxLon - bounds.minLon)) * 100;
+    const y = (1 - (point.lat - bounds.minLat) / (bounds.maxLat - bounds.minLat)) * 100;
+    const size = Math.max(18, Math.min(34, 18 + Math.sqrt(point.count || 1) * 3));
+
+    return {
+      left: `${x}%`,
+      top: `${y}%`,
+      width: `${size}px`,
+      height: `${size}px`,
+      marginLeft: `${-size / 2}px`,
+      marginTop: `${-size / 2}px`,
+    };
+  }
 
   return (
-    <div className="spacesMapOnly">
-      <div ref={mapRef} className="spacesMapCanvas" />
+    <div className="staticMapShell">
+      <iframe
+        className="staticMapBase"
+        src={baseSrc}
+        title="Mapa d'espais"
+        loading="lazy"
+      />
+
+      <div className="staticMapOverlay">
+        {pointData.map((point) => (
+          <button
+            key={`${point.title}-${point.lat}-${point.lon}`}
+            className={`staticMapPoint ${selected?.title === point.title ? "selected" : ""}`}
+            style={getPointStyle(point)}
+            onClick={() => setSelectedName(point.title)}
+            title={`${point.title} · ${point.count} passis`}
+          >
+            <span>{point.count || ""}</span>
+          </button>
+        ))}
+      </div>
+
       {!pointData.length && (
         <div className="mapNoPoints">No hi ha punts amb coordenades amb aquests filtres.</div>
       )}
@@ -1786,9 +1730,7 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
               <label>
                 <span>Base cartogràfica</span>
                 <select value={baseMap} onChange={(e) => setBaseMap(e.target.value)}>
-                  <option value="positron">CartoDB Positron · minimalista</option>
-                  <option value="voyager">CartoDB Voyager · net informatiu</option>
-                  <option value="toner">Toner Lite · blanc i negre</option>
+                  <option value="positron">Base clara · OpenStreetMap</option>
                   <option value="osm">OpenStreetMap · estàndard</option>
                 </select>
               </label>
@@ -3163,6 +3105,16 @@ p { color: #666; }
 .simpleSpaceMarker button { width: 28px; height: 28px; border-radius: 999px; border: 3px solid #fff; background: #2f6fdd; color: #fff; font-size: 10px; font-weight: 900; box-shadow: 0 6px 18px rgba(0,0,0,.25); cursor: pointer; display: grid; place-items: center; padding: 0; }
 .mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.88); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; z-index: 500; }
 
+
+.staticMapShell { position: relative; width: 100%; height: calc(100vh - 250px); min-height: 560px; border-radius: 20px; overflow: hidden; background: #f1f1ed; }
+.staticMapBase { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; filter: grayscale(.15) saturate(.65) contrast(.96) brightness(1.05); pointer-events: none; }
+.staticMapOverlay { position: absolute; inset: 0; z-index: 4; }
+.staticMapPoint { position: absolute; border: 3px solid #fff; border-radius: 999px; background: #2f6fdd; color: #fff; box-shadow: 0 8px 22px rgba(0,0,0,.24); display: grid; place-items: center; padding: 0; font-size: 10px; font-weight: 900; cursor: pointer; transition: transform .12s ease, background .12s ease; }
+.staticMapPoint:hover { transform: scale(1.18); z-index: 20; background: #111; }
+.staticMapPoint.selected { background: #111; transform: scale(1.22); z-index: 30; }
+.staticMapPoint span { line-height: 1; }
+.mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.88); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; z-index: 500; }
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -3178,6 +3130,8 @@ p { color: #666; }
   .spacesMapLayout { grid-template-columns: 1fr; }
   .spacesMapPanel { position: static; }
   .spacesMapCanvas { height: 520px; min-height: 420px; }
+
+  .staticMapShell { height: 520px; min-height: 420px; }
 
   .dashboardVisualGrid { grid-template-columns: 1fr; }
   .pieLayout { grid-template-columns: 1fr; justify-items: center; }
@@ -3357,6 +3311,16 @@ p { color: #666; }
 .spacesMapPanel { overflow: hidden; }
 .simpleSpaceMarker { background: transparent; border: 0; }
 .simpleSpaceMarker button { width: 28px; height: 28px; border-radius: 999px; border: 3px solid #fff; background: #2f6fdd; color: #fff; font-size: 10px; font-weight: 900; box-shadow: 0 6px 18px rgba(0,0,0,.25); cursor: pointer; display: grid; place-items: center; padding: 0; }
+.mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.88); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; z-index: 500; }
+
+
+.staticMapShell { position: relative; width: 100%; height: calc(100vh - 250px); min-height: 560px; border-radius: 20px; overflow: hidden; background: #f1f1ed; }
+.staticMapBase { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; filter: grayscale(.15) saturate(.65) contrast(.96) brightness(1.05); pointer-events: none; }
+.staticMapOverlay { position: absolute; inset: 0; z-index: 4; }
+.staticMapPoint { position: absolute; border: 3px solid #fff; border-radius: 999px; background: #2f6fdd; color: #fff; box-shadow: 0 8px 22px rgba(0,0,0,.24); display: grid; place-items: center; padding: 0; font-size: 10px; font-weight: 900; cursor: pointer; transition: transform .12s ease, background .12s ease; }
+.staticMapPoint:hover { transform: scale(1.18); z-index: 20; background: #111; }
+.staticMapPoint.selected { background: #111; transform: scale(1.22); z-index: 30; }
+.staticMapPoint span { line-height: 1; }
 .mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.88); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; z-index: 500; }
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
@@ -3672,6 +3636,16 @@ p { color: #666; }
 .spacesMapPanel { overflow: hidden; }
 .simpleSpaceMarker { background: transparent; border: 0; }
 .simpleSpaceMarker button { width: 28px; height: 28px; border-radius: 999px; border: 3px solid #fff; background: #2f6fdd; color: #fff; font-size: 10px; font-weight: 900; box-shadow: 0 6px 18px rgba(0,0,0,.25); cursor: pointer; display: grid; place-items: center; padding: 0; }
+.mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.88); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; z-index: 500; }
+
+
+.staticMapShell { position: relative; width: 100%; height: calc(100vh - 250px); min-height: 560px; border-radius: 20px; overflow: hidden; background: #f1f1ed; }
+.staticMapBase { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; filter: grayscale(.15) saturate(.65) contrast(.96) brightness(1.05); pointer-events: none; }
+.staticMapOverlay { position: absolute; inset: 0; z-index: 4; }
+.staticMapPoint { position: absolute; border: 3px solid #fff; border-radius: 999px; background: #2f6fdd; color: #fff; box-shadow: 0 8px 22px rgba(0,0,0,.24); display: grid; place-items: center; padding: 0; font-size: 10px; font-weight: 900; cursor: pointer; transition: transform .12s ease, background .12s ease; }
+.staticMapPoint:hover { transform: scale(1.18); z-index: 20; background: #111; }
+.staticMapPoint.selected { background: #111; transform: scale(1.22); z-index: 30; }
+.staticMapPoint span { line-height: 1; }
 .mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.88); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; z-index: 500; }
 
 @media (max-width: 1000px) {
