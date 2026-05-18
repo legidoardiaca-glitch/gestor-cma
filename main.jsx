@@ -1344,6 +1344,12 @@ function CalendarView({ rows, setView, setSelectedActivityId }) {
   const weekGroups = groupBy(datedRows, (row) => getWeekKey(row.dataInici));
   const monthGroups = groupBy(datedRows, (row) => getMonthKey(row.dataInici));
 
+  useEffect(() => {
+    if (viewMode === "map") {
+      setSelectedName("");
+    }
+  }, [viewMode]);
+
   function openActivity(row) {
     setSelectedActivityId(row._row || row.idIntern);
     setView("activitats");
@@ -1465,10 +1471,7 @@ function loadExternalScript(src) {
 
 async function loadLeafletAssets() {
   await loadExternalCss("https://unpkg.com/leaflet@1.9.4/dist/leaflet.css");
-  await loadExternalCss("https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css");
-  await loadExternalCss("https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css");
   await loadExternalScript("https://unpkg.com/leaflet@1.9.4/dist/leaflet.js");
-  await loadExternalScript("https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js");
 
   return window.L;
 }
@@ -1504,10 +1507,9 @@ function parseCoordinate(value) {
 function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
-  const markersLayer = useRef(null);
   const tileLayer = useRef(null);
-  const selectedMarker = useRef(null);
-  const initialFitDone = useRef(false);
+  const markersLayer = useRef(null);
+  const selectedLayer = useRef(null);
 
   const pointData = useMemo(() => {
     return spaces
@@ -1519,7 +1521,6 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
 
         return {
           title: space.title,
-          id: space.id,
           lat,
           lon,
           count: space.count || 0,
@@ -1541,26 +1542,25 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
           zoom: 12,
           zoomControl: true,
           scrollWheelZoom: true,
-          preferCanvas: false,
         });
       }
 
       const base = getMapBaseLayer(baseMap);
 
       if (tileLayer.current) {
-        tileLayer.current.remove();
+        mapInstance.current.removeLayer(tileLayer.current);
       }
 
       tileLayer.current = L.tileLayer(base.url, {
         attribution: base.attribution,
         maxZoom: 19,
-        updateWhenIdle: true,
-        keepBuffer: 2,
-      }).addTo(mapInstance.current);
+      });
+
+      tileLayer.current.addTo(mapInstance.current);
 
       setTimeout(() => {
         mapInstance.current?.invalidateSize();
-      }, 200);
+      }, 300);
     });
 
     return () => {
@@ -1575,63 +1575,42 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
       if (cancelled || !mapInstance.current) return;
 
       if (markersLayer.current) {
-        markersLayer.current.remove();
+        mapInstance.current.removeLayer(markersLayer.current);
       }
 
-      markersLayer.current = L.markerClusterGroup({
-        showCoverageOnHover: false,
-        spiderfyOnMaxZoom: true,
-        chunkedLoading: true,
-        chunkInterval: 60,
-        chunkDelay: 30,
-        maxClusterRadius: 52,
-      });
+      markersLayer.current = L.layerGroup();
 
-      const icon = L.divIcon({
-        className: "spaceMapMarker",
-        html: "<span></span>",
-        iconSize: [22, 22],
-        iconAnchor: [11, 11],
-      });
-
-      const markers = [];
       const bounds = [];
 
       pointData.forEach((point) => {
-        const marker = L.marker([point.lat, point.lon], { icon });
-
-        marker.bindPopup(`
-          <div class="mapPopup">
-            <strong>${point.title || "Espai"}</strong>
-            <span>${point.districte || ""}</span>
-            <small>${point.count || 0} passis vinculats</small>
-          </div>
-        `);
+        const marker = L.marker([point.lat, point.lon], {
+          icon: L.divIcon({
+            className: "simpleSpaceMarker",
+            html: `<button type="button" title="${point.title}">${point.count || ""}</button>`,
+            iconSize: [28, 28],
+            iconAnchor: [14, 14],
+          }),
+        });
 
         marker.on("click", () => {
           setSelectedName(point.title);
         });
 
-        markers.push(marker);
+        marker.addTo(markersLayer.current);
         bounds.push([point.lat, point.lon]);
       });
 
-      markersLayer.current.addLayers(markers);
-      mapInstance.current.addLayer(markersLayer.current);
+      markersLayer.current.addTo(mapInstance.current);
 
-      if (!initialFitDone.current) {
-        if (bounds.length > 1) {
-          mapInstance.current.fitBounds(bounds, { padding: [30, 30] });
-        } else if (bounds.length === 1) {
-          mapInstance.current.setView(bounds[0], 15);
-        }
-
-        initialFitDone.current = true;
+      if (bounds.length > 1) {
+        mapInstance.current.fitBounds(bounds, { padding: [30, 30] });
+      } else if (bounds.length === 1) {
+        mapInstance.current.setView(bounds[0], 15);
       }
 
       setTimeout(() => {
         mapInstance.current?.invalidateSize();
-      }, 250);
+      }, 300);
     });
 
     return () => {
@@ -1648,25 +1627,30 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
 
     if (lat === null || lon === null) return;
 
-    if (selectedMarker.current) {
-      selectedMarker.current.remove();
+    if (selectedLayer.current) {
+      mapInstance.current.removeLayer(selectedLayer.current);
     }
 
-    selectedMarker.current = L.marker([lat, lon], {
-      icon: L.divIcon({
-        className: "spaceMapMarker selected",
-        html: "<span></span>",
-        iconSize: [32, 32],
-        iconAnchor: [16, 16],
-      }),
-    }).addTo(mapInstance.current);
-
-    mapInstance.current.setView([lat, lon], Math.max(mapInstance.current.getZoom(), 15), {
-      animate: true,
+    selectedLayer.current = L.circle([lat, lon], {
+      radius: 80,
+      color: "#111",
+      weight: 3,
+      fillColor: "#111",
+      fillOpacity: 0.12,
     });
+
+    selectedLayer.current.addTo(mapInstance.current);
+    mapInstance.current.setView([lat, lon], 15);
   }, [selected]);
 
-  return <div ref={mapRef} className="spacesMapCanvas" />;
+  return (
+    <div className="spacesMapOnly">
+      <div ref={mapRef} className="spacesMapCanvas" />
+      {!pointData.length && (
+        <div className="mapNoPoints">No hi ha punts amb coordenades amb aquests filtres.</div>
+      )}
+    </div>
+  );
 }
 
 function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
@@ -1718,6 +1702,12 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
   const selected = viewMode === "map" ? selectedFromName : selectedFromName || spaces[0] || null;
   const unlinkedCount = espaisLoaded ? allSpaces.filter((space) => !space.matched).length : 0;
   const spacesWithMap = spaces.filter((space) => space.latitud && space.longitud);
+
+  useEffect(() => {
+    if (viewMode === "map") {
+      setSelectedName("");
+    }
+  }, [viewMode]);
 
   function openActivity(row) {
     setSelectedActivityId(row._row || row.idIntern);
@@ -1841,7 +1831,7 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
           <SpaceDetail space={selected} onOpenActivity={openActivity} espaisLoaded={espaisLoaded} />
         </div>
       ) : (
-        <div className="spacesMapLayout">
+        <div className="spacesMapLayout cleanMapMode">
           <div className="spacesMapPanel">
             <SpacesMap
               spaces={spacesWithMap}
@@ -1850,7 +1840,7 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
               baseMap={baseMap}
             />
             <div className="mapHint">
-              <strong>{spacesWithMap.length}</strong> espais amb coordenades · els punts s’agrupen quan el mapa està allunyat
+              <strong>{spacesWithMap.length}</strong> espais amb coordenades
             </div>
           </div>
 
@@ -1859,7 +1849,7 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
           ) : (
             <div className="panel mapEmptyPanel">
               <h2>Selecciona un punt al mapa</h2>
-              <p>Clica qualsevol marcador per obrir la fitxa completa de l’espai, amb imatge, mapa, activitats vinculades i calendari.</p>
+              <p>La fitxa completa de l’espai només es carregarà quan cliquis un marcador.</p>
             </div>
           )}
         </div>
@@ -3152,6 +3142,27 @@ p { color: #666; }
 .mapEmptyPanel h2 { font-size: 28px; }
 .mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
 
+
+.spacesMapShell { position: relative; }
+.mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.86); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; }
+.spaceMapMarker { background: transparent; border: 0; }
+.spaceMapMarker span { display: block; width: 22px; height: 22px; border-radius: 999px; background: #2f6fdd; border: 3px solid #fff; box-shadow: 0 6px 18px rgba(0,0,0,.22); }
+.spaceMapMarker.selected span { width: 32px; height: 32px; background: #111; border: 4px solid #fff; box-shadow: 0 8px 26px rgba(0,0,0,.32); }
+.mapEmptyPanel { min-height: 360px; display: flex; flex-direction: column; justify-content: center; }
+.mapEmptyPanel h2 { font-size: 28px; }
+.mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
+
+
+.cleanMapMode .spacesList,
+.cleanMapMode .spaceCard {
+  display: none !important;
+}
+.spacesMapOnly { position: relative; width: 100%; }
+.spacesMapPanel { overflow: hidden; }
+.simpleSpaceMarker { background: transparent; border: 0; }
+.simpleSpaceMarker button { width: 28px; height: 28px; border-radius: 999px; border: 3px solid #fff; background: #2f6fdd; color: #fff; font-size: 10px; font-weight: 900; box-shadow: 0 6px 18px rgba(0,0,0,.25); cursor: pointer; display: grid; place-items: center; padding: 0; }
+.mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.88); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; z-index: 500; }
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -3326,6 +3337,27 @@ p { color: #666; }
 .mapEmptyPanel { min-height: 360px; display: flex; flex-direction: column; justify-content: center; }
 .mapEmptyPanel h2 { font-size: 28px; }
 .mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
+
+
+.spacesMapShell { position: relative; }
+.mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.86); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; }
+.spaceMapMarker { background: transparent; border: 0; }
+.spaceMapMarker span { display: block; width: 22px; height: 22px; border-radius: 999px; background: #2f6fdd; border: 3px solid #fff; box-shadow: 0 6px 18px rgba(0,0,0,.22); }
+.spaceMapMarker.selected span { width: 32px; height: 32px; background: #111; border: 4px solid #fff; box-shadow: 0 8px 26px rgba(0,0,0,.32); }
+.mapEmptyPanel { min-height: 360px; display: flex; flex-direction: column; justify-content: center; }
+.mapEmptyPanel h2 { font-size: 28px; }
+.mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
+
+
+.cleanMapMode .spacesList,
+.cleanMapMode .spaceCard {
+  display: none !important;
+}
+.spacesMapOnly { position: relative; width: 100%; }
+.spacesMapPanel { overflow: hidden; }
+.simpleSpaceMarker { background: transparent; border: 0; }
+.simpleSpaceMarker button { width: 28px; height: 28px; border-radius: 999px; border: 3px solid #fff; background: #2f6fdd; color: #fff; font-size: 10px; font-weight: 900; box-shadow: 0 6px 18px rgba(0,0,0,.25); cursor: pointer; display: grid; place-items: center; padding: 0; }
+.mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.88); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; z-index: 500; }
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -3620,6 +3652,27 @@ p { color: #666; }
 .mapEmptyPanel { min-height: 360px; display: flex; flex-direction: column; justify-content: center; }
 .mapEmptyPanel h2 { font-size: 28px; }
 .mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
+
+
+.spacesMapShell { position: relative; }
+.mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.86); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; }
+.spaceMapMarker { background: transparent; border: 0; }
+.spaceMapMarker span { display: block; width: 22px; height: 22px; border-radius: 999px; background: #2f6fdd; border: 3px solid #fff; box-shadow: 0 6px 18px rgba(0,0,0,.22); }
+.spaceMapMarker.selected span { width: 32px; height: 32px; background: #111; border: 4px solid #fff; box-shadow: 0 8px 26px rgba(0,0,0,.32); }
+.mapEmptyPanel { min-height: 360px; display: flex; flex-direction: column; justify-content: center; }
+.mapEmptyPanel h2 { font-size: 28px; }
+.mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
+
+
+.cleanMapMode .spacesList,
+.cleanMapMode .spaceCard {
+  display: none !important;
+}
+.spacesMapOnly { position: relative; width: 100%; }
+.spacesMapPanel { overflow: hidden; }
+.simpleSpaceMarker { background: transparent; border: 0; }
+.simpleSpaceMarker button { width: 28px; height: 28px; border-radius: 999px; border: 3px solid #fff; background: #2f6fdd; color: #fff; font-size: 10px; font-weight: 900; box-shadow: 0 6px 18px rgba(0,0,0,.25); cursor: pointer; display: grid; place-items: center; padding: 0; }
+.mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.88); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; z-index: 500; }
 
 @media (max-width: 1000px) {
   .activitySearchRow {
