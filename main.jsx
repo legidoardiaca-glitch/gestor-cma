@@ -1505,6 +1505,22 @@ function parseCoordinate(value) {
 }
 
 function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
+  const BCN_BOUNDS = {
+    minLat: 41.30,
+    maxLat: 41.50,
+    minLon: 2.02,
+    maxLon: 2.28,
+  };
+
+  function isInsideBarcelona(lat, lon) {
+    return (
+      lat >= BCN_BOUNDS.minLat &&
+      lat <= BCN_BOUNDS.maxLat &&
+      lon >= BCN_BOUNDS.minLon &&
+      lon <= BCN_BOUNDS.maxLon
+    );
+  }
+
   const pointData = useMemo(() => {
     return spaces
       .map((space) => {
@@ -1512,6 +1528,7 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
         const lon = parseCoordinate(space.longitud);
 
         if (lat === null || lon === null) return null;
+        if (!isInsideBarcelona(lat, lon)) return null;
 
         return {
           title: space.title,
@@ -1524,37 +1541,11 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
       .filter(Boolean);
   }, [spaces]);
 
-  const bounds = useMemo(() => {
-    if (!pointData.length) {
-      return {
-        minLat: 41.30,
-        maxLat: 41.48,
-        minLon: 2.04,
-        maxLon: 2.28,
-      };
-    }
-
-    const lats = pointData.map((p) => p.lat);
-    const lons = pointData.map((p) => p.lon);
-    const paddingLat = 0.018;
-    const paddingLon = 0.018;
-
-    return {
-      minLat: Math.min(...lats) - paddingLat,
-      maxLat: Math.max(...lats) + paddingLat,
-      minLon: Math.min(...lons) - paddingLon,
-      maxLon: Math.max(...lons) + paddingLon,
-    };
-  }, [pointData]);
-
-  const baseSrc =
-    baseMap === "osm"
-      ? `https://www.openstreetmap.org/export/embed.html?bbox=${bounds.minLon}%2C${bounds.minLat}%2C${bounds.maxLon}%2C${bounds.maxLat}&layer=mapnik`
-      : `https://www.openstreetmap.org/export/embed.html?bbox=${bounds.minLon}%2C${bounds.minLat}%2C${bounds.maxLon}%2C${bounds.maxLat}&layer=mapnik`;
+  const baseSrc = `https://www.openstreetmap.org/export/embed.html?bbox=${BCN_BOUNDS.minLon}%2C${BCN_BOUNDS.minLat}%2C${BCN_BOUNDS.maxLon}%2C${BCN_BOUNDS.maxLat}&layer=mapnik`;
 
   function getPointStyle(point) {
-    const x = ((point.lon - bounds.minLon) / (bounds.maxLon - bounds.minLon)) * 100;
-    const y = (1 - (point.lat - bounds.minLat) / (bounds.maxLat - bounds.minLat)) * 100;
+    const x = ((point.lon - BCN_BOUNDS.minLon) / (BCN_BOUNDS.maxLon - BCN_BOUNDS.minLon)) * 100;
+    const y = (1 - (point.lat - BCN_BOUNDS.minLat) / (BCN_BOUNDS.maxLat - BCN_BOUNDS.minLat)) * 100;
     const size = Math.max(18, Math.min(34, 18 + Math.sqrt(point.count || 1) * 3));
 
     return {
@@ -1591,7 +1582,7 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
       </div>
 
       {!pointData.length && (
-        <div className="mapNoPoints">No hi ha punts amb coordenades amb aquests filtres.</div>
+        <div className="mapNoPoints">No hi ha punts amb coordenades dins l’àmbit de Barcelona amb aquests filtres.</div>
       )}
     </div>
   );
@@ -3115,6 +3106,10 @@ p { color: #666; }
 .staticMapPoint span { line-height: 1; }
 .mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.88); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; z-index: 500; }
 
+
+.staticMapShell { background: #eef0ec; }
+.staticMapBase { transform: scale(1.01); transform-origin: center; }
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -3322,6 +3317,10 @@ p { color: #666; }
 .staticMapPoint.selected { background: #111; transform: scale(1.22); z-index: 30; }
 .staticMapPoint span { line-height: 1; }
 .mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.88); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; z-index: 500; }
+
+
+.staticMapShell { background: #eef0ec; }
+.staticMapBase { transform: scale(1.01); transform-origin: center; }
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -3647,6 +3646,10 @@ p { color: #666; }
 .staticMapPoint.selected { background: #111; transform: scale(1.22); z-index: 30; }
 .staticMapPoint span { line-height: 1; }
 .mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.88); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; z-index: 500; }
+
+
+.staticMapShell { background: #eef0ec; }
+.staticMapBase { transform: scale(1.01); transform-origin: center; }
 
 @media (max-width: 1000px) {
   .activitySearchRow {
