@@ -13,6 +13,8 @@
     "html-to-image": "latest",
     "jspdf": "latest",
     "@vercel/analytics": "latest"
+    "leaflet": "^1.9.4",
+"leaflet.markercluster": "^1.5.3"
   },
   "devDependencies": {}
 }
