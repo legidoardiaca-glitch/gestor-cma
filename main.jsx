@@ -1,4 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import "leaflet.markercluster";
+import "leaflet.markercluster/dist/MarkerCluster.css";
+import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 import {
   ResponsiveContainer,
   BarChart,
@@ -1505,21 +1510,12 @@ function parseCoordinate(value) {
 }
 
 function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
-  const BCN_BOUNDS = {
-    minLat: 41.30,
-    maxLat: 41.50,
-    minLon: 2.02,
-    maxLon: 2.28,
-  };
-
-  function isInsideBarcelona(lat, lon) {
-    return (
-      lat >= BCN_BOUNDS.minLat &&
-      lat <= BCN_BOUNDS.maxLat &&
-      lon >= BCN_BOUNDS.minLon &&
-      lon <= BCN_BOUNDS.maxLon
-    );
-  }
+  const mapRef = useRef(null);
+  const mapInstance = useRef(null);
+  const markersLayer = useRef(null);
+  const tileLayer = useRef(null);
+  const selectedLayer = useRef(null);
+  const initialFitDone = useRef(false);
 
   const pointData = useMemo(() => {
     return spaces
@@ -1528,10 +1524,10 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
         const lon = parseCoordinate(space.longitud);
 
         if (lat === null || lon === null) return null;
-        if (!isInsideBarcelona(lat, lon)) return null;
 
         return {
           title: space.title,
+          id: space.id,
           lat,
           lon,
           count: space.count || 0,
@@ -1541,48 +1537,142 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
       .filter(Boolean);
   }, [spaces]);
 
-  const baseSrc = `https://www.openstreetmap.org/export/embed.html?bbox=${BCN_BOUNDS.minLon}%2C${BCN_BOUNDS.minLat}%2C${BCN_BOUNDS.maxLon}%2C${BCN_BOUNDS.maxLat}&layer=mapnik`;
+  useEffect(() => {
+    if (!mapRef.current || mapInstance.current) return;
 
-  function getPointStyle(point) {
-    const x = ((point.lon - BCN_BOUNDS.minLon) / (BCN_BOUNDS.maxLon - BCN_BOUNDS.minLon)) * 100;
-    const y = (1 - (point.lat - BCN_BOUNDS.minLat) / (BCN_BOUNDS.maxLat - BCN_BOUNDS.minLat)) * 100;
-    const size = Math.max(18, Math.min(34, 18 + Math.sqrt(point.count || 1) * 3));
+    mapInstance.current = L.map(mapRef.current, {
+      center: [41.3874, 2.1686],
+      zoom: 12,
+      zoomControl: true,
+      scrollWheelZoom: true,
+      preferCanvas: true,
+    });
 
-    return {
-      left: `${x}%`,
-      top: `${y}%`,
-      width: `${size}px`,
-      height: `${size}px`,
-      marginLeft: `${-size / 2}px`,
-      marginTop: `${-size / 2}px`,
+    setTimeout(() => {
+      mapInstance.current?.invalidateSize();
+    }, 250);
+
+    return () => {
+      if (mapInstance.current) {
+        mapInstance.current.remove();
+        mapInstance.current = null;
+      }
     };
-  }
+  }, []);
+
+  useEffect(() => {
+    if (!mapInstance.current) return;
+
+    const base = getMapBaseLayer(baseMap);
+
+    if (tileLayer.current) {
+      mapInstance.current.removeLayer(tileLayer.current);
+    }
+
+    tileLayer.current = L.tileLayer(base.url, {
+      attribution: base.attribution,
+      maxZoom: 19,
+      updateWhenIdle: true,
+      keepBuffer: 2,
+    });
+
+    tileLayer.current.addTo(mapInstance.current);
+  }, [baseMap]);
+
+  useEffect(() => {
+    if (!mapInstance.current) return;
+
+    if (markersLayer.current) {
+      mapInstance.current.removeLayer(markersLayer.current);
+    }
+
+    markersLayer.current = L.markerClusterGroup({
+      showCoverageOnHover: false,
+      spiderfyOnMaxZoom: true,
+      chunkedLoading: true,
+      chunkInterval: 50,
+      chunkDelay: 20,
+      maxClusterRadius: 48,
+    });
+
+    const icon = L.divIcon({
+      className: "leafletSpaceMarker",
+      html: "<span></span>",
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
+    });
+
+    const markers = [];
+    const bounds = [];
+
+    pointData.forEach((point) => {
+      const marker = L.marker([point.lat, point.lon], { icon });
+
+      marker.bindPopup(`
+        <div class="mapPopup">
+          <strong>${point.title || "Espai"}</strong>
+          <span>${point.districte || ""}</span>
+          <small>${point.count || 0} passis vinculats</small>
+        </div>
+      `);
+
+      marker.on("click", () => {
+        setSelectedName(point.title);
+      });
+
+      markers.push(marker);
+      bounds.push([point.lat, point.lon]);
+    });
+
+    markersLayer.current.addLayers(markers);
+    markersLayer.current.addTo(mapInstance.current);
+
+    if (!initialFitDone.current) {
+      if (bounds.length > 1) {
+        mapInstance.current.fitBounds(bounds, { padding: [30, 30] });
+      } else if (bounds.length === 1) {
+        mapInstance.current.setView(bounds[0], 15);
+      }
+
+      initialFitDone.current = true;
+    }
+
+    setTimeout(() => {
+      mapInstance.current?.invalidateSize();
+    }, 250);
+  }, [pointData, setSelectedName]);
+
+  useEffect(() => {
+    if (!mapInstance.current || !selected?.latitud || !selected?.longitud) return;
+
+    const lat = parseCoordinate(selected.latitud);
+    const lon = parseCoordinate(selected.longitud);
+
+    if (lat === null || lon === null) return;
+
+    if (selectedLayer.current) {
+      mapInstance.current.removeLayer(selectedLayer.current);
+    }
+
+    selectedLayer.current = L.circleMarker([lat, lon], {
+      radius: 18,
+      color: "#111",
+      weight: 3,
+      fillColor: "#ffffff",
+      fillOpacity: 0.65,
+    });
+
+    selectedLayer.current.addTo(mapInstance.current);
+    mapInstance.current.setView([lat, lon], Math.max(mapInstance.current.getZoom(), 15), {
+      animate: true,
+    });
+  }, [selected]);
 
   return (
-    <div className="staticMapShell">
-      <iframe
-        className="staticMapBase"
-        src={baseSrc}
-        title="Mapa d'espais"
-        loading="lazy"
-      />
-
-      <div className="staticMapOverlay">
-        {pointData.map((point) => (
-          <button
-            key={`${point.title}-${point.lat}-${point.lon}`}
-            className={`staticMapPoint ${selected?.title === point.title ? "selected" : ""}`}
-            style={getPointStyle(point)}
-            onClick={() => setSelectedName(point.title)}
-            title={`${point.title} · ${point.count} passis`}
-          >
-            <span>{point.count || ""}</span>
-          </button>
-        ))}
-      </div>
-
+    <div className="leafletMapShell">
+      <div ref={mapRef} className="leafletMapCanvas" />
       {!pointData.length && (
-        <div className="mapNoPoints">No hi ha punts amb coordenades dins l’àmbit de Barcelona amb aquests filtres.</div>
+        <div className="mapNoPoints">No hi ha punts amb coordenades amb aquests filtres.</div>
       )}
     </div>
   );
@@ -3110,6 +3200,21 @@ p { color: #666; }
 .staticMapShell { background: #eef0ec; }
 .staticMapBase { transform: scale(1.01); transform-origin: center; }
 
+
+.leafletMapShell { position: relative; width: 100%; height: calc(100vh - 250px); min-height: 560px; border-radius: 20px; overflow: hidden; background: #f1f1ed; }
+.leafletMapCanvas { width: 100%; height: 100%; border-radius: 20px; overflow: hidden; }
+.leafletSpaceMarker { background: transparent; border: 0; }
+.leafletSpaceMarker span { display: block; width: 22px; height: 22px; border-radius: 999px; background: #2f6fdd; border: 3px solid #fff; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+.marker-cluster-small, .marker-cluster-medium, .marker-cluster-large { background-color: rgba(47, 111, 221, .18); }
+.marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div { background-color: rgba(47, 111, 221, .88); color: #fff; font-weight: 900; }
+.leaflet-popup-content-wrapper { border-radius: 16px; box-shadow: 0 12px 32px rgba(0,0,0,.16); }
+.leaflet-popup-content { margin: 12px 14px; }
+.leaflet-container { font-family: Inter, Arial, sans-serif; }
+.mapPopup { display: grid; gap: 4px; min-width: 170px; }
+.mapPopup strong { font-size: 14px; }
+.mapPopup span, .mapPopup small { color: #555; }
+.mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.88); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; z-index: 500; }
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -3127,6 +3232,8 @@ p { color: #666; }
   .spacesMapCanvas { height: 520px; min-height: 420px; }
 
   .staticMapShell { height: 520px; min-height: 420px; }
+
+  .leafletMapShell { height: 520px; min-height: 420px; }
 
   .dashboardVisualGrid { grid-template-columns: 1fr; }
   .pieLayout { grid-template-columns: 1fr; justify-items: center; }
@@ -3321,6 +3428,21 @@ p { color: #666; }
 
 .staticMapShell { background: #eef0ec; }
 .staticMapBase { transform: scale(1.01); transform-origin: center; }
+
+
+.leafletMapShell { position: relative; width: 100%; height: calc(100vh - 250px); min-height: 560px; border-radius: 20px; overflow: hidden; background: #f1f1ed; }
+.leafletMapCanvas { width: 100%; height: 100%; border-radius: 20px; overflow: hidden; }
+.leafletSpaceMarker { background: transparent; border: 0; }
+.leafletSpaceMarker span { display: block; width: 22px; height: 22px; border-radius: 999px; background: #2f6fdd; border: 3px solid #fff; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+.marker-cluster-small, .marker-cluster-medium, .marker-cluster-large { background-color: rgba(47, 111, 221, .18); }
+.marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div { background-color: rgba(47, 111, 221, .88); color: #fff; font-weight: 900; }
+.leaflet-popup-content-wrapper { border-radius: 16px; box-shadow: 0 12px 32px rgba(0,0,0,.16); }
+.leaflet-popup-content { margin: 12px 14px; }
+.leaflet-container { font-family: Inter, Arial, sans-serif; }
+.mapPopup { display: grid; gap: 4px; min-width: 170px; }
+.mapPopup strong { font-size: 14px; }
+.mapPopup span, .mapPopup small { color: #555; }
+.mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.88); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; z-index: 500; }
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -3650,6 +3772,21 @@ p { color: #666; }
 
 .staticMapShell { background: #eef0ec; }
 .staticMapBase { transform: scale(1.01); transform-origin: center; }
+
+
+.leafletMapShell { position: relative; width: 100%; height: calc(100vh - 250px); min-height: 560px; border-radius: 20px; overflow: hidden; background: #f1f1ed; }
+.leafletMapCanvas { width: 100%; height: 100%; border-radius: 20px; overflow: hidden; }
+.leafletSpaceMarker { background: transparent; border: 0; }
+.leafletSpaceMarker span { display: block; width: 22px; height: 22px; border-radius: 999px; background: #2f6fdd; border: 3px solid #fff; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+.marker-cluster-small, .marker-cluster-medium, .marker-cluster-large { background-color: rgba(47, 111, 221, .18); }
+.marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div { background-color: rgba(47, 111, 221, .88); color: #fff; font-weight: 900; }
+.leaflet-popup-content-wrapper { border-radius: 16px; box-shadow: 0 12px 32px rgba(0,0,0,.16); }
+.leaflet-popup-content { margin: 12px 14px; }
+.leaflet-container { font-family: Inter, Arial, sans-serif; }
+.mapPopup { display: grid; gap: 4px; min-width: 170px; }
+.mapPopup strong { font-size: 14px; }
+.mapPopup span, .mapPopup small { color: #555; }
+.mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.88); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; z-index: 500; }
 
 @media (max-width: 1000px) {
   .activitySearchRow {
