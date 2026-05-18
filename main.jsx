@@ -1,11 +1,65 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  PieChart,
+  Pie,
+  Cell,
+  CartesianGrid,
+} from "recharts";
+import { toJpeg, toPng } from "html-to-image";
+import jsPDF from "jspdf";
 import { createRoot } from "react-dom/client";
 
-const API_URL =
-  "https://docs.google.com/spreadsheets/d/e/2PACX-1vRWPBpxuBECSh1kLS1Vm-gdmOQhWw6_aBUUsjrX3wMZlaL17IsIkhFrSa8ovmbMR-uFL07SeX5ClGOM/pub?gid=1637995479&single=true&output=csv";
+const DATA_URL = "/api/data";
 
-const INSCRIPCIONS_CSV_URL =
-  "https://docs.google.com/spreadsheets/d/e/2PACX-1vTbsKEA9-L8F1dlF2WPYWZ89k316qr1jlwELa9RAhvvXLyBobVeUuUmm6mEuw_PmbMN3VJGdJZxpqXh/pub?gid=0&single=true&output=csv";
+const CHART_COLORS = [
+  "#2f6fdd",
+  "#de7a3b",
+  "#4aa79c",
+  "#8b74d6",
+  "#e7b84e",
+  "#e6b7ad",
+  "#8cb7dc",
+  "#b8b8b8",
+  "#6f8f72",
+  "#9b6f8f",
+];
+
+function downloadDataUrl(dataUrl, fileName) {
+  const link = document.createElement("a");
+  link.download = fileName;
+  link.href = dataUrl;
+  link.click();
+}
+
+function formatCompactDate(dateString) {
+  if (!dateString || dateString === "—") return "—";
+  const date = new Date(`${dateString}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return dateString;
+
+  return date.toLocaleDateString("ca-ES", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function toChartEntries(data, limit = 10) {
+  return Object.entries(data)
+    .filter(([name]) => name && name !== "Sense dades")
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([name, value], index) => ({
+      name,
+      value,
+      color: CHART_COLORS[index % CHART_COLORS.length],
+    }));
+}
 
 function loadJsonp(url) {
   return new Promise((resolve, reject) => {
@@ -37,6 +91,7 @@ function loadJsonp(url) {
     document.body.appendChild(script);
   });
 }
+
 function parseCsv(text) {
   const rows = [];
   let row = [];
@@ -95,6 +150,37 @@ function normalizeCsvHeader(header) {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_|_$/g, "");
 }
+
+function rowsToObjects(headers, rows, startRow = 2) {
+  return rows.map((row, rowIndex) => {
+    const obj = {
+      _row: startRow + rowIndex,
+    };
+
+    headers.forEach((header, index) => {
+      obj[header] = row[index] ?? "";
+    });
+
+    return obj;
+  });
+}
+
+async function loadPassisFromIndex() {
+  const response = await fetch(DATA_URL, { cache: "no-store" });
+
+  if (!response.ok) {
+    throw new Error(`Error carregant dades: ${response.status}`);
+  }
+
+  const data = await response.json();
+
+  if (!Array.isArray(data.rows)) {
+    throw new Error("La resposta de /api/data no conté rows.");
+  }
+
+  return data.rows;
+}
+
 function normalizeBool(value) {
   const text = String(value ?? "").toLowerCase().trim();
   return value === true || ["true", "sí", "si", "yes", "1"].includes(text);
@@ -124,6 +210,66 @@ function normalizeTime(value) {
   const date = new Date(text);
   if (Number.isNaN(date.getTime())) return text;
   return date.toTimeString().slice(0, 5);
+}
+
+
+function getDriveFileId(url) {
+  const text = String(url || "").trim();
+
+  if (!text.includes("drive.google.com")) return "";
+
+  const fileMatch = text.match(/drive\.google\.com\/file\/d\/([^/?#]+)/);
+  if (fileMatch) return fileMatch[1];
+
+  const idMatch = text.match(/[?&]id=([^&#]+)/);
+  if (idMatch) return idMatch[1];
+
+  const ucMatch = text.match(/drive\.google\.com\/uc\?[^#]*id=([^&#]+)/);
+  if (ucMatch) return ucMatch[1];
+
+  return "";
+}
+
+function uniqueValues(values) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function getImageUrls(url) {
+  const text = String(url || "").trim();
+
+  if (!text) return [];
+
+  const driveId = getDriveFileId(text);
+
+  if (driveId) {
+    return uniqueValues([
+      `https://drive.google.com/thumbnail?id=${driveId}&sz=w1600`,
+      `https://drive.google.com/uc?export=view&id=${driveId}`,
+      `https://drive.google.com/uc?id=${driveId}`,
+      text,
+    ]);
+  }
+
+  return [text];
+}
+
+function normalizeImageUrl(url) {
+  return getImageUrls(url)[0] || "";
+}
+
+function getDrivePreviewUrl(url) {
+  const driveId = getDriveFileId(url);
+  return driveId ? `https://drive.google.com/file/d/${driveId}/preview` : "";
+}
+
+function getSafeFileName(value) {
+  return String(value || "activitat")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 70) || "activitat";
 }
 
 function normalizeRow(row) {
@@ -160,28 +306,6 @@ function normalizeRow(row) {
     aforament: String(row.aforament || ""),
     entradetaCat: String(row.entradetaCat || ""),
     voluntaris: normalizeBool(row.voluntaris),
-  };
-}
-
-
-function normalizeInscripcio(row) {
-  return {
-    _row: row._row || "",
-    id: String(row.id || ""),
-    idIntern: String(row.id_intern || ""),
-    idWeb: String(row.id_web || ""),
-    titolWeb: String(row.titol_activitat_web || ""),
-    categoria: String(row.categoria || ""),
-    districte: String(row.districte || ""),
-    nom: String(row.nom || ""),
-    cognom: String(row.cognom || ""),
-    entrades: Number(String(row.entrades || "1").replace(",", ".")) || 0,
-    codiPostal: String(row.codi_postal || ""),
-    barri: String(row.barri || ""),
-    ciutat: String(row.ciutat || ""),
-    genere: String(row.genere || row.g_nere || ""),
-    esArquitecte: String(row.for_statistical_purposes_we_would_like_to_know_whether_you_are_an_architect || ""),
-    comEnsConeix: String(row.how_did_you_meet_us || ""),
   };
 }
 
@@ -333,15 +457,29 @@ function Badge({ children, tone = "neutral" }) {
   return <span className={`badge ${tone}`}>{children}</span>;
 }
 
+
+function BrandMark({ className = "" }) {
+  return (
+    <div className={`brand ${className}`}>
+      <img
+        className="brandLogo"
+        src="/logo.png"
+        alt="Barcelona Capital Mundial de l'Arquitectura"
+      />
+      <div className="brandText">
+        <div>BARCELONA</div>
+        <div>CAPITAL MUNDIAL</div>
+        <div>DE L'ARQUITECTURA</div>
+      </div>
+    </div>
+  );
+}
+
 function Shell({ children, view, setView, rows, status, userName, role, onLogout }) {
   return (
     <main className="app">
       <aside className="sidebar">
-        <div className="brand">
-          <div>BARCELONA</div>
-          <div>CAPITAL MUNDIAL</div>
-          <div>DE L'ARQUITECTURA</div>
-        </div>
+        <BrandMark />
 
         <nav>
           {[
@@ -350,7 +488,6 @@ function Shell({ children, view, setView, rows, status, userName, role, onLogout
             ["propostes", "Propostes"],
             ["calendari", "Calendari"],
             ["espais", "Espais"],
-            ["inscripcions", "Dades inscripcions"],
           ].map(([id, label]) => (
             <button key={id} onClick={() => setView(id)} className={view === id ? "active" : ""}>
               {label}
@@ -438,30 +575,135 @@ function ActivityCard({ row, selected, onClick }) {
 
 function Detail({ row, onSearchRelated, onChangeView }) {
   const [tab, setTab] = useState("general");
+  const [exporting, setExporting] = useState(false);
+  const [imageFallbackIndex, setImageFallbackIndex] = useState(0);
+  const [showDrivePreview, setShowDrivePreview] = useState(false);
+  const detailRef = useRef(null);
+
+  useEffect(() => {
+    setImageFallbackIndex(0);
+    setShowDrivePreview(false);
+  }, [row?._row, row?.idIntern, row?.imatge]);
 
   if (!row) return <div className="panel">Selecciona una activitat.</div>;
 
   const errors = getErrors(row);
+  const imageUrls = getImageUrls(row.imatge);
+  const imageUrl = imageUrls[imageFallbackIndex] || "";
+  const drivePreviewUrl = getDrivePreviewUrl(row.imatge);
+  const fileBase = `activitat-${getSafeFileName(row.idIntern || row.idWeb || row.titolWeb || row.titol)}`;
+
+  async function exportActivity(type) {
+    if (!detailRef.current || exporting) return;
+
+    setExporting(true);
+
+    try {
+      const node = detailRef.current;
+
+      if (type === "jpg") {
+        const dataUrl = await toJpeg(node, {
+          quality: 0.96,
+          backgroundColor: "#ffffff",
+          pixelRatio: 2,
+          cacheBust: true,
+        });
+
+        downloadDataUrl(dataUrl, `${fileBase}.jpg`);
+      }
+
+      if (type === "png") {
+        const dataUrl = await toPng(node, {
+          backgroundColor: "#ffffff",
+          pixelRatio: 2,
+          cacheBust: true,
+        });
+
+        downloadDataUrl(dataUrl, `${fileBase}.png`);
+      }
+
+      if (type === "pdf") {
+        const dataUrl = await toPng(node, {
+          backgroundColor: "#ffffff",
+          pixelRatio: 2,
+          cacheBust: true,
+        });
+
+        const width = node.offsetWidth;
+        const height = node.offsetHeight;
+        const pdf = new jsPDF({
+          orientation: width >= height ? "landscape" : "portrait",
+          unit: "px",
+          format: [width, height],
+        });
+
+        pdf.addImage(dataUrl, "PNG", 0, 0, width, height);
+        pdf.save(`${fileBase}.pdf`);
+      }
+    } catch (err) {
+      alert(`No s'ha pogut exportar la fitxa: ${err.message}`);
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
-    <div className="panel detail">
+    <div ref={detailRef} className="panel detail activityExportArea">
+      <div className="detailTopBar">
+        <div className="detailStatus">
+          <Badge>{row.idIntern}</Badge>
+          <Badge>{row.idWeb || "Sense ID WEB"}</Badge>
+          <Badge>{row.encarregada || "Sense encarregada"}</Badge>
+          <Badge tone={row.importar ? "success" : "neutral"}>{row.importar ? "Importar" : "No importar"}</Badge>
+          {errors.length > 0 && <Badge tone="warning">{errors.length} avisos</Badge>}
+        </div>
+
+        <div className="activityExportControls">
+          <span>Exportar</span>
+          <button type="button" disabled={exporting} onClick={() => exportActivity("png")}>
+            PNG
+          </button>
+          <button type="button" disabled={exporting} onClick={() => exportActivity("jpg")}>
+            JPG
+          </button>
+          <button type="button" disabled={exporting} onClick={() => exportActivity("pdf")}>
+            PDF
+          </button>
+        </div>
+      </div>
+
       <div className="hero">
-        {row.imatge ? (
-          <div className="heroImage">
-            <span>Imatge principal vinculada</span>
-            <a href={row.imatge} target="_blank" rel="noreferrer">Obrir imatge</a>
+        {imageUrl || drivePreviewUrl ? (
+          <div className="heroImageReal">
+            {showDrivePreview && drivePreviewUrl ? (
+              <iframe
+                className="driveImagePreview"
+                src={drivePreviewUrl}
+                title={row.titolWeb || row.titol || "Imatge de l'activitat"}
+                allow="autoplay"
+              />
+            ) : (
+              <img
+                src={imageUrl}
+                alt={row.titolWeb || row.titol || "Imatge de l'activitat"}
+                referrerPolicy="no-referrer"
+                onError={() => {
+                  if (imageFallbackIndex < imageUrls.length - 1) {
+                    setImageFallbackIndex((current) => current + 1);
+                  } else {
+                    setShowDrivePreview(Boolean(drivePreviewUrl));
+                  }
+                }}
+              />
+            )}
+
+            <a href={row.imatge || imageUrl} target="_blank" rel="noreferrer">
+              Obrir imatge
+            </a>
           </div>
         ) : (
           <span>Sense imatge principal</span>
         )}
-      </div>
-
-      <div className="badges">
-        <Badge>{row.idIntern}</Badge>
-        <Badge>{row.idWeb || "Sense ID WEB"}</Badge>
-        <Badge>{row.encarregada || "Sense encarregada"}</Badge>
-        <Badge tone={row.importar ? "success" : "neutral"}>{row.importar ? "Importar" : "No importar"}</Badge>
-        {errors.length > 0 && <Badge tone="warning">{errors.length} avisos</Badge>}
       </div>
 
       <h2>{row.titolWeb || row.titol || "Sense títol"}</h2>
@@ -523,8 +765,8 @@ function Detail({ row, onSearchRelated, onChangeView }) {
             <Info label="Categoria" value={row.categoria || "—"} />
           </div>
 
-          {row.imatge && (
-            <a className="externalLink" href={row.imatge} target="_blank" rel="noreferrer">
+          {imageUrl && (
+            <a className="externalLink" href={imageUrl} target="_blank" rel="noreferrer">
               Obrir imatge principal
             </a>
           )}
@@ -585,7 +827,23 @@ function Info({ label, value }) {
 function ActivitiesView({ rows, setView, selectedActivityId, setSelectedActivityId }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
-  const [selected, setSelected] = useState(rows.find((row) => String(row._row || row.idIntern) === String(selectedActivityId)) || rows[0] || null);
+  const [districtFilter, setDistrictFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [selected, setSelected] = useState(
+    rows.find((row) => String(row._row || row.idIntern) === String(selectedActivityId)) || rows[0] || null
+  );
+
+  const districtOptions = useMemo(() => {
+    return Array.from(new Set(rows.map((row) => row.districte).filter(Boolean))).sort((a, b) =>
+      a.localeCompare(b, "ca")
+    );
+  }, [rows]);
+
+  const categoryOptions = useMemo(() => {
+    return Array.from(new Set(rows.map((row) => row.categoria).filter(Boolean))).sort((a, b) =>
+      a.localeCompare(b, "ca")
+    );
+  }, [rows]);
 
   const filtered = useMemo(() => {
     return rows.filter((row) => {
@@ -604,13 +862,15 @@ function ActivitiesView({ rows, setView, selectedActivityId, setSelectedActivity
       const matchesQuery = text.includes(query.toLowerCase());
       const matchesFilter =
         filter === "all" ||
-        (filter === "importar" && row.importar) ||
         (filter === "errors" && hasErrors(row)) ||
         (filter === "senseEspai" && !row.espai);
 
-      return matchesQuery && matchesFilter;
+      const matchesDistrict = districtFilter === "all" || row.districte === districtFilter;
+      const matchesCategory = categoryFilter === "all" || row.categoria === categoryFilter;
+
+      return matchesQuery && matchesFilter && matchesDistrict && matchesCategory;
     });
-  }, [rows, query, filter]);
+  }, [rows, query, filter, districtFilter, categoryFilter]);
 
   useEffect(() => {
     const found = rows.find((row) => String(row._row || row.idIntern) === String(selectedActivityId));
@@ -618,25 +878,83 @@ function ActivitiesView({ rows, setView, selectedActivityId, setSelectedActivity
   }, [selectedActivityId, rows]);
 
   useEffect(() => {
-    if (!selected && filtered[0]) setSelected(filtered[0]);
-  }, [filtered, selected]);
+    if (!filtered.length) {
+      setSelected(null);
+      return;
+    }
+
+    const selectedInFiltered = selected
+      ? filtered.some((row) => String(row._row || row.idIntern) === String(selected._row || selected.idIntern))
+      : false;
+
+    if (!selectedInFiltered) {
+      setSelected(filtered[0]);
+      setSelectedActivityId(filtered[0]._row || filtered[0].idIntern);
+    }
+  }, [filtered, selected, setSelectedActivityId]);
 
   return (
     <>
       <Top title="Activitats" subtitle="Llistat operatiu de passis llegits directament del Google Sheets." />
-      <SearchFilters
-        query={query}
-        setQuery={setQuery}
-        activeFilter={filter}
-        setActiveFilter={setFilter}
-        placeholder="Buscar per ID, títol, espai, categoria..."
-        filters={[
-          { id: "all", label: "Tot" },
-          { id: "importar", label: "Importar" },
-          { id: "errors", label: "Errors" },
-          { id: "senseEspai", label: "Sense espai" },
-        ]}
-      />
+
+      <div className="toolbar activitiesToolbar">
+        <div className="activitySearchRow">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar per ID, títol, espai, categoria..."
+          />
+          <div className="resultsCounter">
+            <strong>{filtered.length}</strong>
+            <span>{filtered.length === 1 ? "activitat" : "activitats"}</span>
+          </div>
+        </div>
+
+        <div className="activityFiltersRow">
+          <div className="chips">
+            {[
+              { id: "all", label: "Tot" },
+              { id: "errors", label: "Errors" },
+              { id: "senseEspai", label: "Sense espai" },
+            ].map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setFilter(item.id)}
+                className={filter === item.id ? "selected" : ""}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="selectFilters">
+            <label>
+              <span>Districte</span>
+              <select value={districtFilter} onChange={(e) => setDistrictFilter(e.target.value)}>
+                <option value="all">Tots els districtes</option>
+                {districtOptions.map((district) => (
+                  <option key={district} value={district}>
+                    {district}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>Categoria</span>
+              <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+                <option value="all">Totes les categories</option>
+                {categoryOptions.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+      </div>
+
       <div className="split">
         <div className="list">
           {filtered.map((row) => (
@@ -650,6 +968,12 @@ function ActivitiesView({ rows, setView, selectedActivityId, setSelectedActivity
               }}
             />
           ))}
+
+          {!filtered.length && (
+            <div className="emptyList">
+              No hi ha activitats amb aquests filtres.
+            </div>
+          )}
         </div>
         <Detail
           row={selected}
@@ -1077,117 +1401,10 @@ function SpaceDetail({ space, onOpenActivity }) {
 
 
 
-function InscripcionsView({ inscripcions }) {
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("all");
-
-  const filtered = useMemo(() => {
-    return inscripcions.filter((row) => {
-      const text = [
-        row.id,
-        row.idIntern,
-        row.idWeb,
-        row.titolWeb,
-        row.categoria,
-        row.districte,
-        row.nom,
-        row.cognom,
-        row.codiPostal,
-        row.barri,
-        row.ciutat,
-        row.genere,
-        row.esArquitecte,
-        row.comEnsConeix,
-      ].join(" ").toLowerCase();
-
-      const matchesQuery = text.includes(query.toLowerCase());
-      const architectText = row.esArquitecte.toLowerCase();
-      const matchesFilter =
-        filter === "all" ||
-        (filter === "arquitectes" && (architectText.includes("yes") || architectText.includes("sí") || architectText.includes("si"))) ||
-        (filter === "bcn" && row.ciutat.toLowerCase().includes("barcelona")) ||
-        (filter === "senseDistricte" && !row.districte);
-
-      return matchesQuery && matchesFilter;
-    });
-  }, [inscripcions, query, filter]);
-
-  const totalEntrades = filtered.reduce((sum, row) => sum + (row.entrades || 0), 0);
-
-  return (
-    <>
-      <Top
-        title="Dades inscripcions"
-        subtitle="Lectura de les inscripcions vinculades al programa: persones, entrades, activitats, districtes i perfils."
-      />
-
-      <div className="stats">
-        <StatCard label="Inscripcions" value={filtered.length} />
-        <StatCard label="Entrades" value={totalEntrades} />
-        <StatCard label="Activitats web" value={uniqueCount(filtered, "idWeb")} />
-        <StatCard label="Districtes" value={uniqueCount(filtered, "districte")} />
-        <StatCard label="Barris" value={uniqueCount(filtered, "barri")} />
-      </div>
-
-      <SearchFilters
-        query={query}
-        setQuery={setQuery}
-        activeFilter={filter}
-        setActiveFilter={setFilter}
-        placeholder="Buscar per activitat, nom, barri, ciutat, districte..."
-        filters={[
-          { id: "all", label: "Tot" },
-          { id: "arquitectes", label: "Arquitectes" },
-          { id: "bcn", label: "Barcelona" },
-          { id: "senseDistricte", label: "Sense districte" },
-        ]}
-      />
-
-      <div className="dashboardVisualGrid">
-        <VerticalBars title="Inscripcions per activitat web" data={countBy(filtered, "idWeb")} />
-        <PieChart title="Inscripcions per categoria" data={countBy(filtered, "categoria")} />
-        <Chart title="Inscripcions per districte" data={countBy(filtered, "districte")} />
-        <Chart title="Com ens han conegut?" data={countBy(filtered, "comEnsConeix")} />
-      </div>
-
-      <div className="inscriptionsTableWrap">
-        <table className="inscriptionsTable">
-          <thead>
-            <tr>
-              <th>ID WEB</th>
-              <th>Activitat</th>
-              <th>Nom</th>
-              <th>Entrades</th>
-              <th>Barri</th>
-              <th>Ciutat</th>
-              <th>Districte</th>
-              <th>Arquitecte?</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.slice(0, 500).map((row) => (
-              <tr key={`${row.idWeb}-${row.nom}-${row.cognom}-${row._row}`}>
-                <td>{row.idWeb}</td>
-                <td>{row.titolWeb}</td>
-                <td>{row.nom} {row.cognom}</td>
-                <td>{row.entrades || "—"}</td>
-                <td>{row.barri || "—"}</td>
-                <td>{row.ciutat || "—"}</td>
-                <td>{row.districte || "—"}</td>
-                <td>{row.esArquitecte || "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {filtered.length > 500 && (
-          <div className="notice">S’estan mostrant les primeres 500 files de {filtered.length}. Utilitza el cercador per afinar resultats.</div>
-        )}
-      </div>
-    </>
-  );
-}
-
 function DashboardView({ rows }) {
+  const dashboardRef = useRef(null);
+  const [exporting, setExporting] = useState(false);
+
   const categoryData = countBy(rows, "categoria");
   const districtData = countBy(rows, "districte");
   const managerData = countBy(rows, "encarregada");
@@ -1198,203 +1415,311 @@ function DashboardView({ rows }) {
     "mes"
   );
 
+  const dateRange = getDateRange(rows);
+  const dateLabel = `${formatCompactDate(dateRange.start)} – ${formatCompactDate(dateRange.end)}`;
+
+  async function exportDashboard(type) {
+    if (!dashboardRef.current || exporting) return;
+
+    setExporting(true);
+
+    try {
+      const node = dashboardRef.current;
+      const fileBase = `dashboard-cma-${new Date().toISOString().slice(0, 10)}`;
+
+      if (type === "jpg") {
+        const dataUrl = await toJpeg(node, {
+          quality: 0.96,
+          backgroundColor: "#f7f7f5",
+          pixelRatio: 2,
+          cacheBust: true,
+        });
+
+        downloadDataUrl(dataUrl, `${fileBase}.jpg`);
+      }
+
+      if (type === "png") {
+        const dataUrl = await toPng(node, {
+          backgroundColor: "#f7f7f5",
+          pixelRatio: 2,
+          cacheBust: true,
+        });
+
+        downloadDataUrl(dataUrl, `${fileBase}.png`);
+      }
+
+      if (type === "pdf") {
+        const dataUrl = await toPng(node, {
+          backgroundColor: "#f7f7f5",
+          pixelRatio: 2,
+          cacheBust: true,
+        });
+
+        const width = node.offsetWidth;
+        const height = node.offsetHeight;
+        const pdf = new jsPDF({
+          orientation: "landscape",
+          unit: "px",
+          format: [width, height],
+        });
+
+        pdf.addImage(dataUrl, "PNG", 0, 0, width, height);
+        pdf.save(`${fileBase}.pdf`);
+      }
+    } catch (err) {
+      alert(`No s'ha pogut exportar el dashboard: ${err.message}`);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
-    <>
-      <Top title="Dashboard direcció" subtitle="Lectura visual general del programa: tipologies, territori, equips i calendari 2026." />
+    <div ref={dashboardRef} className="dashboardExportArea">
+      <Top
+        title="Dashboard direcció"
+        subtitle="Visió general de la gestió del programa: tipologies, territori, equips i calendari 2026."
+      >
+        <div className="dashboardTopControls">
+          <div className="dateRangePill">📅 {dateLabel}</div>
+          <div className="exportButtons">
+            <button type="button" disabled={exporting} onClick={() => exportDashboard("png")}>
+              {exporting ? "Exportant..." : "PNG"}
+            </button>
+            <button type="button" disabled={exporting} onClick={() => exportDashboard("jpg")}>
+              JPG
+            </button>
+            <button type="button" disabled={exporting} onClick={() => exportDashboard("pdf")}>
+              PDF
+            </button>
+          </div>
+        </div>
+      </Top>
 
-      <div className="stats">
-        <StatCard label="Passis" value={rows.length} />
-        <StatCard label="Propostes" value={uniqueCount(rows, "id")} />
-        <StatCard label="Activitats web" value={uniqueCount(rows, "idWeb")} />
-        <StatCard label="Espais" value={uniqueCount(rows, "espai")} />
-        <StatCard label="Districtes" value={uniqueCount(rows, "districte")} />
+      <div className="stats dashboardStats">
+        <KpiCard icon="🎟️" tone="blue" label="Passis" value={rows.length} />
+        <KpiCard icon="📄" tone="green" label="Propostes" value={uniqueCount(rows, "id")} />
+        <KpiCard icon="🌐" tone="purple" label="Activitats web" value={uniqueCount(rows, "idWeb")} />
+        <KpiCard icon="🏛️" tone="yellow" label="Espais" value={uniqueCount(rows, "espai")} />
+        <KpiCard icon="📍" tone="peach" label="Districtes" value={uniqueCount(rows, "districte")} />
       </div>
 
-      <div className="dashboardVisualGrid">
-        <PieChart title="Activitats per tipologia" data={categoryData} />
-        <DistrictMap title="Activitats per districte" data={districtData} />
-        <VerticalBars title="Activitats per encarregada" data={managerData} />
-        <MonthCalendar title="Activitats per mes · 2026" data={monthData} />
+      <div className="dashboardChartsGrid">
+        <TypeDonut title="Activitats per tipologia" data={categoryData} />
+        <DistrictBars title="Activitats per districte" data={districtData} />
+        <ManagerBars title="Activitats per encarregada" data={managerData} />
+        <MonthBarChart title="Activitats per mes · 2026" data={monthData} />
       </div>
-    </>
+    </div>
   );
 }
 
-function PieChart({ title, data }) {
-  const entries = Object.entries(data)
-    .filter(([name]) => name && name !== "Sense dades")
-    .sort((a, b) => b[1] - a[1]);
-
-  const total = entries.reduce((sum, [, value]) => sum + value, 0) || 1;
-  let cumulative = 0;
-
-  const gradient = entries
-    .map(([name, value], index) => {
-      const start = (cumulative / total) * 100;
-      cumulative += value;
-      const end = (cumulative / total) * 100;
-      return `var(--chart-${(index % 10) + 1}) ${start}% ${end}%`;
-    })
-    .join(", ");
-
+function KpiCard({ icon, tone, label, value }) {
   return (
-    <div className="vizCard">
-      <div className="vizHeader">
-        <h2>{title}</h2>
-        <Badge>{total} passis</Badge>
+    <div className="kpiCard">
+      <div className={`kpiIcon ${tone}`}>{icon}</div>
+      <div>
+        <div className="kpiValue">{value}</div>
+        <div className="kpiLabel">{label}</div>
+      </div>
+    </div>
+  );
+}
+
+function ChartCard({ title, totalLabel, icon, children }) {
+  return (
+    <section className="chartCard">
+      <div className="chartCardHeader">
+        <div className="chartTitle">
+          <span>{icon}</span>
+          <h2>{title}</h2>
+        </div>
+        <span className="chartTotal">{totalLabel}</span>
       </div>
 
-      <div className="pieLayout">
-        <div className="pie" style={{ background: `conic-gradient(${gradient})` }}>
-          <div>{entries.length}<span>tipologies</span></div>
+      {children}
+
+      <button className="detailLink" type="button">
+        Veure detall →
+      </button>
+    </section>
+  );
+}
+
+function TypeDonut({ title, data }) {
+  const entries = toChartEntries(data, 8);
+  const total = entries.reduce((sum, item) => sum + item.value, 0) || 1;
+  const chartData = entries.map((item) => ({
+    ...item,
+    percent: Math.round((item.value / total) * 100),
+  }));
+
+  return (
+    <ChartCard title={title} icon="◔" totalLabel={`Total: ${total} activitats`}>
+      <div className="donutCardBody">
+        <div className="donutWrap">
+          <ResponsiveContainer width="100%" height={260}>
+            <PieChart>
+              <Pie
+                data={chartData}
+                dataKey="value"
+                nameKey="name"
+                innerRadius={68}
+                outerRadius={110}
+                paddingAngle={1}
+                label={({ percent }) => `${percent}%`}
+              >
+                {chartData.map((entry) => (
+                  <Cell key={entry.name} fill={entry.color} />
+                ))}
+              </Pie>
+              <Tooltip formatter={(value, name) => [value, name]} />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="donutCenter">
+            <strong>{total}</strong>
+            <span>activitats</span>
+          </div>
         </div>
 
-        <div className="legend">
-          {entries.slice(0, 10).map(([name, value], index) => (
-            <div className="legendItem" key={name}>
-              <i style={{ background: `var(--chart-${(index % 10) + 1})` }} />
-              <span>{name}</span>
-              <b>{value}</b>
+        <div className="donutLegend">
+          {chartData.map((item) => (
+            <div className="donutLegendRow" key={item.name}>
+              <i style={{ background: item.color }} />
+              <span>{item.name}</span>
+              <b>{item.value}</b>
+              <em>{item.percent}%</em>
             </div>
           ))}
         </div>
       </div>
-    </div>
+    </ChartCard>
   );
 }
 
-function DistrictMap({ title, data }) {
-  const districts = [
-    ["01 Ciutat Vella", "CV"],
-    ["02 Eixample", "EX"],
-    ["03 Sants-Montjuïc", "SM"],
-    ["04 Les Corts", "LC"],
-    ["05 Sarrià-Sant Gervasi", "SSG"],
-    ["06 Gràcia", "GR"],
-    ["07 Horta-Guinardó", "HG"],
-    ["08 Nou Barris", "NB"],
-    ["09 Sant Andreu", "SA"],
-    ["10 Sant Martí", "ST"],
-  ];
+function formatDistrictName(value) {
+  return String(value || "")
+    .replace(/^\d+\s*/, "")
+    .replace(/([a-zàèéíïòóúüç])([A-ZÀÈÉÍÏÒÓÚÜÇ])/g, "$1 $2")
+    .replace(/\s*-\s*/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
 
-  function getValue(name) {
-    const found = Object.entries(data).find(([key]) =>
-      String(key).toLowerCase().includes(name.slice(3).toLowerCase()) ||
-      String(key).startsWith(name.slice(0, 2))
-    );
-    return found ? found[1] : 0;
-  }
+function DistrictYAxisTick({ x, y, payload }) {
+  return (
+    <text
+      x={x}
+      y={y}
+      dy={4}
+      textAnchor="end"
+      fill="#555"
+      fontSize={11}
+      style={{
+        whiteSpace: "nowrap",
+      }}
+    >
+      {payload.value}
+    </text>
+  );
+}
 
-  const max = Math.max(...districts.map(([name]) => getValue(name)), 1);
+function DistrictBars({ title, data }) {
+ const entries = toChartEntries(data, 10).map((item) => ({
+  ...item,
+  label: formatDistrictName(item.name),
+}));
+  const total = entries.reduce((sum, item) => sum + item.value, 0);
 
   return (
-    <div className="vizCard">
-      <div className="vizHeader">
-        <h2>{title}</h2>
-        <Badge>{Object.values(data).reduce((a, b) => a + b, 0)} passis</Badge>
+    <ChartCard title={title} icon="▰" totalLabel={`Total: ${total} activitats`}>
+      <div className="chartBody">
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart
+  data={entries}
+  layout="vertical"
+  margin={{ top: 12, right: 34, bottom: 10, left: 115 }}
+>
+            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+            <XAxis type="number" tickLine={false} axisLine={false} />
+            <YAxis
+  type="category"
+  dataKey="label"
+  width={190}
+  tickLine={false}
+  axisLine={false}
+  interval={0}
+  tick={<DistrictYAxisTick />}
+/>
+            <Tooltip />
+            <Bar dataKey="value" fill="#2f6fdd" radius={[0, 7, 7, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
       </div>
-
-      <div className="districtMap">
-        {districts.map(([name, short], index) => {
-          const value = getValue(name);
-          const intensity = value / max;
-          return (
-            <div
-              key={name}
-              className={`districtCell d${index + 1}`}
-              style={{ opacity: 0.35 + intensity * 0.65 }}
-              title={`${name}: ${value}`}
-            >
-              <strong>{short}</strong>
-              <span>{value}</span>
-              <small>{name.replace(/^\d+\s/, "")}</small>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    </ChartCard>
   );
 }
 
-function VerticalBars({ title, data }) {
-  const entries = Object.entries(data)
-    .filter(([name]) => name && name !== "Sense dades")
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8);
-
-  const max = Math.max(...entries.map(([, value]) => value), 1);
+function ManagerBars({ title, data }) {
+  const entries = toChartEntries(data, 8);
+  const total = entries.length;
 
   return (
-    <div className="vizCard">
-      <div className="vizHeader">
-        <h2>{title}</h2>
-        <Badge>{entries.length} equips</Badge>
+    <ChartCard title={title} icon="♙" totalLabel={`Total: ${total} encarregades`}>
+      <div className="chartBody">
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={entries} margin={{ top: 22, right: 16, bottom: 18, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fontSize: 12 }} />
+            <YAxis tickLine={false} axisLine={false} />
+            <Tooltip />
+            <Bar dataKey="value" fill="#4aa79c" radius={[8, 8, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
       </div>
-
-      <div className="verticalBars">
-        {entries.map(([name, value], index) => (
-          <div className="vBarItem" key={name}>
-            <div className="vBarWrap">
-              <div
-                className="vBar"
-                style={{
-                  height: `${Math.max(8, (value / max) * 100)}%`,
-                  background: `var(--chart-${(index % 10) + 1})`,
-                }}
-              />
-            </div>
-            <b>{value}</b>
-            <span>{name}</span>
-          </div>
-        ))}
-      </div>
-    </div>
+    </ChartCard>
   );
 }
 
-function MonthCalendar({ title, data }) {
+function MonthBarChart({ title, data }) {
   const months = [
-    ["2026-01", "Gener"],
-    ["2026-02", "Febrer"],
-    ["2026-03", "Març"],
-    ["2026-04", "Abril"],
-    ["2026-05", "Maig"],
-    ["2026-06", "Juny"],
-    ["2026-07", "Juliol"],
-    ["2026-08", "Agost"],
-    ["2026-09", "Setembre"],
-    ["2026-10", "Octubre"],
-    ["2026-11", "Novembre"],
-    ["2026-12", "Desembre"],
+    ["2026-01", "Gen"],
+    ["2026-02", "Feb"],
+    ["2026-03", "Mar"],
+    ["2026-04", "Abr"],
+    ["2026-05", "Mai"],
+    ["2026-06", "Jun"],
+    ["2026-07", "Jul"],
+    ["2026-08", "Ago"],
+    ["2026-09", "Set"],
+    ["2026-10", "Oct"],
+    ["2026-11", "Nov"],
+    ["2026-12", "Des"],
   ];
 
-  const max = Math.max(...months.map(([key]) => data[key] || 0), 1);
+  const entries = months.map(([key, name]) => ({
+    name,
+    value: data[key] || 0,
+  }));
+
+  const total = entries.reduce((sum, item) => sum + item.value, 0);
 
   return (
-    <div className="vizCard">
-      <div className="vizHeader">
-        <h2>{title}</h2>
-        <Badge>12 mesos</Badge>
+    <ChartCard title={title} icon="▣" totalLabel={`Total: ${total} activitats`}>
+      <div className="chartBody">
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={entries} margin={{ top: 22, right: 16, bottom: 18, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fontSize: 12 }} />
+            <YAxis tickLine={false} axisLine={false} />
+            <Tooltip />
+            <Bar dataKey="value" fill="#2f6fdd" radius={[8, 8, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
       </div>
-
-      <div className="monthDashboard">
-        {months.map(([key, label]) => {
-          const value = data[key] || 0;
-          return (
-            <div className="monthDashCell" key={key}>
-              <span>{label}</span>
-              <strong>{value}</strong>
-              <div>
-                <i style={{ width: `${(value / max) * 100}%` }} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    </ChartCard>
   );
 }
-
 
 function Chart({ title, data }) {
   const entries = Object.entries(data).sort((a, b) => b[1] - a[1]).slice(0, 12);
@@ -1419,11 +1744,7 @@ function LoginScreen({ userName, setUserName, role, setRole, onEnter }) {
   return (
     <div className="loginScreen">
       <div className="loginCard">
-        <div className="brand loginBrand">
-          <div>BARCELONA</div>
-          <div>CAPITAL MUNDIAL</div>
-          <div>DE L'ARQUITECTURA</div>
-        </div>
+        <BrandMark className="loginBrand" />
         <p className="eyebrow">Gestor de programació</p>
         <h1>Accés al visor</h1>
         <p>Identificació interna per adaptar la lectura de la plataforma.</p>
@@ -1470,7 +1791,6 @@ function App() {
   const [userName, setUserName] = useState("");
   const [role, setRole] = useState("direccio");
   const [rows, setRows] = useState([]);
-  const [inscripcions, setInscripcions] = useState([]);
   const [apiSpaces, setApiSpaces] = useState([]);
   const [selectedActivityId, setSelectedActivityId] = useState("");
   const [view, setView] = useState("dashboard");
@@ -1479,20 +1799,9 @@ function App() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    Promise.all([
-      fetch(API_URL, { cache: "no-store" }).then((response) => {
-        if (!response.ok) throw new Error(`Error carregant CSV activitats: ${response.status}`);
-        return response.text();
-      }),
-      fetch(INSCRIPCIONS_CSV_URL, { cache: "no-store" }).then((response) => {
-        if (!response.ok) throw new Error(`Error carregant CSV inscripcions: ${response.status}`);
-        return response.text();
-      }),
-    ])
-      .then(([csvText, inscripcionsCsvText]) => {
-        const csvRows = parseCsv(csvText);
-
-        const passis = csvRows
+    loadPassisFromIndex()
+      .then((jsonRows) => {
+        const passis = jsonRows
           .filter((row) => row.id || row.id_intern || row.titol_activitat || row.titol_activitat_cat)
           .map((row) =>
             normalizeRow({
@@ -1529,20 +1838,19 @@ function App() {
             })
           );
 
-        const inscripcionsRows = parseCsv(inscripcionsCsvText)
-          .filter((row) => row.id || row.id_intern || row.id_web || row.nom || row.cognom)
-          .map(normalizeInscripcio);
-
         setRows(passis);
-        setInscripcions(inscripcionsRows);
         setApiSpaces([]);
-        if (passis[0]) setSelectedActivityId(passis[0]._row || passis[0].idIntern);
-        setStatus(`CSV publicat · ${passis.length} activitats · ${inscripcionsRows.length} inscripcions`);
+
+        if (passis[0]) {
+          setSelectedActivityId(passis[0]._row || passis[0].idIntern);
+        }
+
+        setStatus(`JSON per lots · ${passis.length} registres`);
         setLoading(false);
       })
       .catch((err) => {
         setError(err.message || "Error carregant dades");
-        setStatus("Error CSV");
+        setStatus("Error JSON");
         setLoading(false);
       });
   }, []);
@@ -1601,7 +1909,6 @@ function App() {
             setSelectedActivityId={setSelectedActivityId}
           />
         )}
-        {view === "inscripcions" && <InscripcionsView inscripcions={inscripcions} />}
       </Shell>
       <style>{css}</style>
     </>
@@ -1615,7 +1922,9 @@ button, input { font: inherit; }
 button { cursor: pointer; }
 .app { display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; }
 .sidebar { background: #fff; border-right: 1px solid #ddd; padding: 30px; position: sticky; top: 0; height: 100vh; }
-.brand { font-size: 21px; line-height: 1.02; font-weight: 900; letter-spacing: -0.03em; margin-bottom: 46px; }
+.brand { display: flex; align-items: flex-start; gap: 10px; font-size: 15px; line-height: 1.05; font-weight: 900; letter-spacing: -0.035em; margin-bottom: 42px; }
+.brandLogo { width: 42px; height: auto; flex-shrink: 0; margin-top: 1px; }
+.brandText { display: grid; gap: 1px; }
 nav button { width: 100%; border: 0; background: transparent; text-align: left; padding: 14px 16px; border-radius: 16px; margin-bottom: 8px; font-weight: 650; }
 nav button.active, nav button:hover { background: #efefed; }
 .sideMeta { position: absolute; left: 30px; right: 30px; bottom: 30px; background: #f3f3f1; border-radius: 20px; padding: 18px; }
@@ -1727,13 +2036,6 @@ p { color: #666; }
 .clickableRows button { border: 1px solid #eee; background: #fff; border-radius: 12px; padding: 10px 11px; text-align: left; color: #444; font-weight: 650; }
 .clickableRows button:hover { background: #111; color: #fff; border-color: #111; }
 
-
-.inscriptionsTableWrap { background: #fff; border: 1px solid #ddd; border-radius: 24px; padding: 14px; margin-top: 18px; overflow: auto; }
-.inscriptionsTable { width: 100%; border-collapse: collapse; font-size: 13px; }
-.inscriptionsTable th { text-align: left; color: #666; font-size: 12px; padding: 12px 10px; border-bottom: 1px solid #ddd; white-space: nowrap; }
-.inscriptionsTable td { padding: 12px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
-.inscriptionsTable tr:hover td { background: #f7f7f5; }
-
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -1748,6 +2050,284 @@ p { color: #666; }
   .districtMap { grid-template-columns: repeat(2, 1fr); grid-template-rows: none; }
   .districtCell, .districtCell.d1, .districtCell.d2, .districtCell.d3, .districtCell.d4, .districtCell.d5, .districtCell.d6, .districtCell.d7, .districtCell.d8, .districtCell.d9, .districtCell.d10 { grid-column: auto; grid-row: auto; }
 }
+
+
+/* Dashboard mockup style */
+.dashboardExportArea { width: 100%; }
+.dashboardTopControls { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; }
+.dateRangePill, .exportButtons { background: #fff; border: 1px solid #ddd; border-radius: 12px; min-height: 42px; display: inline-flex; align-items: center; box-shadow: 0 1px 0 rgba(0,0,0,.02); }
+.dateRangePill { padding: 0 14px; font-size: 13px; color: #333; white-space: nowrap; }
+.exportButtons { overflow: hidden; }
+.exportButtons button { border: 0; border-right: 1px solid #eee; background: #fff; padding: 0 13px; height: 42px; font-weight: 800; font-size: 12px; }
+.exportButtons button:last-child { border-right: 0; }
+.exportButtons button:hover { background: #f3f3f1; }
+.exportButtons button:disabled { opacity: .55; cursor: wait; }
+.dashboardStats { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; margin: 26px 0 18px; }
+.kpiCard { background: #fff; border: 1px solid #ddd; border-radius: 22px; padding: 22px; min-height: 100px; display: flex; align-items: center; gap: 18px; box-shadow: 0 10px 24px rgba(0,0,0,.045); }
+.kpiIcon { width: 62px; height: 62px; border-radius: 50%; display: grid; place-items: center; font-size: 26px; flex-shrink: 0; }
+.kpiIcon.blue { background: #dfeeff; }
+.kpiIcon.green { background: #ddf4e6; }
+.kpiIcon.purple { background: #e7e2ff; }
+.kpiIcon.yellow { background: #fff0c6; }
+.kpiIcon.peach { background: #ffe1d5; }
+.kpiValue { font-size: 31px; font-weight: 900; line-height: 1; letter-spacing: -0.04em; }
+.kpiLabel { color: #555; margin-top: 7px; font-size: 15px; }
+.dashboardChartsGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.chartCard { background: #fff; border: 1px solid #ddd; border-radius: 22px; padding: 22px; min-height: 360px; box-shadow: 0 10px 24px rgba(0,0,0,.045); position: relative; }
+.chartCardHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.chartTitle { display: flex; align-items: center; gap: 10px; }
+.chartTitle > span { width: 24px; height: 24px; display: grid; place-items: center; color: #333; font-size: 20px; }
+.chartTitle h2 { margin: 0; font-size: 20px; }
+.chartTotal { background: #f3f3f1; border: 1px solid #eee; border-radius: 999px; padding: 7px 11px; font-size: 12px; color: #555; white-space: nowrap; }
+.chartBody { height: 300px; }
+.donutCardBody { display: grid; grid-template-columns: 300px 1fr; gap: 24px; align-items: center; min-height: 290px; }
+.donutWrap { position: relative; height: 260px; }
+.donutCenter {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -40%);
+  text-align: center;
+}
+.donutCenter strong { display: block; font-size: 28px; line-height: 1; }
+.donutCenter span { display: block; margin-top: 5px; color: #555; font-size: 13px; }
+.donutLegend { display: grid; gap: 10px; }
+.donutLegendRow { display: grid; grid-template-columns: 12px minmax(120px, 1fr) 42px 42px; gap: 9px; align-items: center; font-size: 13px; }
+.donutLegendRow i { width: 10px; height: 10px; border-radius: 50%; }
+.donutLegendRow b, .donutLegendRow em { text-align: right; font-style: normal; font-weight: 800; }
+.donutLegendRow em { color: #555; }
+.detailLink { position: absolute; right: 22px; bottom: 18px; border: 0; background: transparent; color: #1d5fd0; font-weight: 800; padding: 0; font-size: 13px; }
+.recharts-cartesian-axis-tick-value { fill: #555; }
+.recharts-default-tooltip { border-radius: 12px !important; border-color: #ddd !important; }
+@media (max-width: 1280px) { .donutCardBody { grid-template-columns: 1fr; } .donutWrap { max-width: 320px; width: 100%; margin: 0 auto; } }
+@media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
+@media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
+
+/* Activitats · filtros, contador, imagen y exportación */
+.activitiesToolbar {
+  padding: 14px;
+}
+
+.activitySearchRow {
+  display: grid;
+  grid-template-columns: 1fr 150px;
+  gap: 12px;
+  align-items: stretch;
+  margin-bottom: 12px;
+}
+
+.activitySearchRow input {
+  margin-bottom: 0;
+}
+
+.resultsCounter {
+  background: #111;
+  color: #fff;
+  border-radius: 16px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  line-height: 1.05;
+  min-height: 48px;
+}
+
+.resultsCounter strong {
+  font-size: 22px;
+  letter-spacing: -0.04em;
+}
+
+.resultsCounter span {
+  font-size: 11px;
+  color: #ddd;
+  font-weight: 800;
+  text-transform: uppercase;
+  margin-top: 3px;
+}
+
+.activityFiltersRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.selectFilters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.selectFilters label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: #f3f3f1;
+  border: 1px solid #ddd;
+  border-radius: 999px;
+  padding: 5px 8px 5px 12px;
+}
+
+.selectFilters label span {
+  font-size: 12px;
+  font-weight: 900;
+  color: #555;
+}
+
+.selectFilters select {
+  border: 0;
+  background: transparent;
+  max-width: 210px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #111;
+  outline: none;
+  cursor: pointer;
+}
+
+.emptyList {
+  background: #fff;
+  border: 1px dashed #ccc;
+  border-radius: 20px;
+  padding: 22px;
+  color: #666;
+  text-align: center;
+}
+
+.detailTopBar {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.detailStatus {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.activityExportControls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #f3f3f1;
+  border: 1px solid #ddd;
+  border-radius: 999px;
+  padding: 5px;
+  flex-shrink: 0;
+}
+
+.activityExportControls span {
+  font-size: 11px;
+  font-weight: 900;
+  color: #555;
+  padding: 0 5px 0 7px;
+  text-transform: uppercase;
+}
+
+.activityExportControls button {
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 9px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.activityExportControls button:hover {
+  background: #111;
+  color: #fff;
+  border-color: #111;
+}
+
+.activityExportControls button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.heroImageReal {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 20px;
+  overflow: hidden;
+  background: #efefed;
+}
+
+.heroImageReal img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.driveImagePreview {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
+.heroImageReal a {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  background: rgba(255,255,255,.92);
+  color: #111;
+  border-radius: 999px;
+  padding: 8px 11px;
+  font-size: 12px;
+  font-weight: 900;
+  text-decoration: none;
+  box-shadow: 0 3px 12px rgba(0,0,0,.12);
+}
+
+.activityExportArea {
+  background: #fff;
+}
+
+@media (max-width: 1000px) {
+  .activitySearchRow {
+    grid-template-columns: 1fr;
+  }
+
+  .resultsCounter {
+    align-items: flex-start;
+  }
+
+  .activityFiltersRow {
+    align-items: stretch;
+  }
+
+  .selectFilters {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .selectFilters label {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .selectFilters select {
+    max-width: 100%;
+  }
+
+  .detailTopBar {
+    flex-direction: column;
+  }
+
+  .activityExportControls {
+    align-self: flex-start;
+  }
+}
+
 `;
+
 
 createRoot(document.getElementById("root")).render(<App />);
