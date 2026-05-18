@@ -1,7 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import "leaflet.markercluster";
 import "leaflet.markercluster/dist/MarkerCluster.css";
 import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 import {
@@ -1509,6 +1507,20 @@ function parseCoordinate(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+
+async function loadInstalledLeaflet() {
+  const leafletModule = await import("leaflet");
+  const L = leafletModule.default || leafletModule;
+
+  window.L = L;
+
+  if (!L.MarkerClusterGroup) {
+    await import("leaflet.markercluster");
+  }
+
+  return window.L;
+}
+
 function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
@@ -1516,6 +1528,7 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
   const tileLayer = useRef(null);
   const selectedLayer = useRef(null);
   const initialFitDone = useRef(false);
+  const leafletRef = useRef(null);
 
   const pointData = useMemo(() => {
     return spaces
@@ -1538,21 +1551,33 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
   }, [spaces]);
 
   useEffect(() => {
-    if (!mapRef.current || mapInstance.current) return;
+    let cancelled = false;
 
-    mapInstance.current = L.map(mapRef.current, {
-      center: [41.3874, 2.1686],
-      zoom: 12,
-      zoomControl: true,
-      scrollWheelZoom: true,
-      preferCanvas: true,
-    });
+    loadInstalledLeaflet()
+      .then((L) => {
+        if (cancelled || !mapRef.current || mapInstance.current) return;
 
-    setTimeout(() => {
-      mapInstance.current?.invalidateSize();
-    }, 250);
+        leafletRef.current = L;
+
+        mapInstance.current = L.map(mapRef.current, {
+          center: [41.3874, 2.1686],
+          zoom: 12,
+          zoomControl: true,
+          scrollWheelZoom: true,
+          preferCanvas: true,
+        });
+
+        setTimeout(() => {
+          mapInstance.current?.invalidateSize();
+        }, 250);
+      })
+      .catch((err) => {
+        console.error("Error carregant Leaflet", err);
+      });
 
     return () => {
+      cancelled = true;
+
       if (mapInstance.current) {
         mapInstance.current.remove();
         mapInstance.current = null;
@@ -1561,7 +1586,8 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
   }, []);
 
   useEffect(() => {
-    if (!mapInstance.current) return;
+    const L = leafletRef.current;
+    if (!L || !mapInstance.current) return;
 
     const base = getMapBaseLayer(baseMap);
 
@@ -1577,23 +1603,28 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
     });
 
     tileLayer.current.addTo(mapInstance.current);
-  }, [baseMap]);
+  }, [baseMap, leafletRef.current]);
 
   useEffect(() => {
-    if (!mapInstance.current) return;
+    const L = leafletRef.current;
+    if (!L || !mapInstance.current) return;
 
     if (markersLayer.current) {
       mapInstance.current.removeLayer(markersLayer.current);
     }
 
-    markersLayer.current = L.markerClusterGroup({
-      showCoverageOnHover: false,
-      spiderfyOnMaxZoom: true,
-      chunkedLoading: true,
-      chunkInterval: 50,
-      chunkDelay: 20,
-      maxClusterRadius: 48,
-    });
+    const canCluster = typeof L.markerClusterGroup === "function";
+
+    markersLayer.current = canCluster
+      ? L.markerClusterGroup({
+          showCoverageOnHover: false,
+          spiderfyOnMaxZoom: true,
+          chunkedLoading: true,
+          chunkInterval: 50,
+          chunkDelay: 20,
+          maxClusterRadius: 48,
+        })
+      : L.layerGroup();
 
     const icon = L.divIcon({
       className: "leafletSpaceMarker",
@@ -1624,7 +1655,12 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
       bounds.push([point.lat, point.lon]);
     });
 
-    markersLayer.current.addLayers(markers);
+    if (canCluster && markersLayer.current.addLayers) {
+      markersLayer.current.addLayers(markers);
+    } else {
+      markers.forEach((marker) => marker.addTo(markersLayer.current));
+    }
+
     markersLayer.current.addTo(mapInstance.current);
 
     if (!initialFitDone.current) {
@@ -1640,10 +1676,11 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
     setTimeout(() => {
       mapInstance.current?.invalidateSize();
     }, 250);
-  }, [pointData, setSelectedName]);
+  }, [pointData, setSelectedName, leafletRef.current]);
 
   useEffect(() => {
-    if (!mapInstance.current || !selected?.latitud || !selected?.longitud) return;
+    const L = leafletRef.current;
+    if (!L || !mapInstance.current || !selected?.latitud || !selected?.longitud) return;
 
     const lat = parseCoordinate(selected.latitud);
     const lon = parseCoordinate(selected.longitud);
@@ -1666,7 +1703,7 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
     mapInstance.current.setView([lat, lon], Math.max(mapInstance.current.getZoom(), 15), {
       animate: true,
     });
-  }, [selected]);
+  }, [selected, leafletRef.current]);
 
   return (
     <div className="leafletMapShell">
