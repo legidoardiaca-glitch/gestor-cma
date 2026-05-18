@@ -1431,13 +1431,196 @@ function MonthBlock({ month, items, onOpen }) {
   );
 }
 
+
+function loadExternalCss(href) {
+  return new Promise((resolve) => {
+    if (document.querySelector(`link[href="${href}"]`)) {
+      resolve();
+      return;
+    }
+
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = href;
+    link.onload = resolve;
+    document.head.appendChild(link);
+  });
+}
+
+function loadExternalScript(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) {
+      resolve();
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = reject;
+    document.body.appendChild(script);
+  });
+}
+
+async function loadLeafletAssets() {
+  await loadExternalCss("https://unpkg.com/leaflet@1.9.4/dist/leaflet.css");
+  await loadExternalCss("https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css");
+  await loadExternalCss("https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css");
+  await loadExternalScript("https://unpkg.com/leaflet@1.9.4/dist/leaflet.js");
+  await loadExternalScript("https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js");
+
+  return window.L;
+}
+
+function getMapBaseLayer(baseId) {
+  const bases = {
+    positron: {
+      url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+      attribution: '&copy; OpenStreetMap &copy; CARTO',
+    },
+    voyager: {
+      url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+      attribution: '&copy; OpenStreetMap &copy; CARTO',
+    },
+    osm: {
+      url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      attribution: '&copy; OpenStreetMap',
+    },
+    toner: {
+      url: "https://tiles.stadiamaps.com/tiles/stamen_toner_lite/{z}/{x}/{y}{r}.png",
+      attribution: '&copy; Stadia Maps &copy; Stamen Design &copy; OpenStreetMap',
+    },
+  };
+
+  return bases[baseId] || bases.positron;
+}
+
+function parseCoordinate(value) {
+  const number = Number(String(value || "").replace(",", "."));
+  return Number.isFinite(number) ? number : null;
+}
+
+function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
+  const mapRef = useRef(null);
+  const mapInstance = useRef(null);
+  const markersLayer = useRef(null);
+  const tileLayer = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadLeafletAssets().then((L) => {
+      if (cancelled || !mapRef.current) return;
+
+      if (!mapInstance.current) {
+        mapInstance.current = L.map(mapRef.current, {
+          center: [41.3874, 2.1686],
+          zoom: 12,
+          zoomControl: true,
+          scrollWheelZoom: true,
+        });
+      }
+
+      const base = getMapBaseLayer(baseMap);
+
+      if (tileLayer.current) {
+        tileLayer.current.remove();
+      }
+
+      tileLayer.current = L.tileLayer(base.url, {
+        attribution: base.attribution,
+        maxZoom: 19,
+      }).addTo(mapInstance.current);
+
+      if (markersLayer.current) {
+        markersLayer.current.remove();
+      }
+
+      markersLayer.current = L.markerClusterGroup({
+        showCoverageOnHover: false,
+        spiderfyOnMaxZoom: true,
+        maxClusterRadius: 48,
+      });
+
+      const bounds = [];
+
+      spaces.forEach((space) => {
+        const lat = parseCoordinate(space.latitud);
+        const lon = parseCoordinate(space.longitud);
+
+        if (lat === null || lon === null) return;
+
+        const marker = L.marker([lat, lon]);
+        marker.bindPopup(`
+          <div class="mapPopup">
+            <strong>${space.title || "Espai"}</strong>
+            <span>${space.districte || ""}</span>
+            <small>${space.count || 0} passis vinculats</small>
+          </div>
+        `);
+
+        marker.on("click", () => {
+          setSelectedName(space.title);
+        });
+
+        markersLayer.current.addLayer(marker);
+        bounds.push([lat, lon]);
+      });
+
+      mapInstance.current.addLayer(markersLayer.current);
+
+      if (bounds.length > 1) {
+        mapInstance.current.fitBounds(bounds, { padding: [30, 30] });
+      } else if (bounds.length === 1) {
+        mapInstance.current.setView(bounds[0], 15);
+      }
+
+      setTimeout(() => {
+        mapInstance.current?.invalidateSize();
+      }, 250);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [spaces, setSelectedName, baseMap]);
+
+  useEffect(() => {
+    if (!mapInstance.current || !selected?.latitud || !selected?.longitud) return;
+
+    const lat = parseCoordinate(selected.latitud);
+    const lon = parseCoordinate(selected.longitud);
+
+    if (lat === null || lon === null) return;
+
+    mapInstance.current.setView([lat, lon], Math.max(mapInstance.current.getZoom(), 15), {
+      animate: true,
+    });
+  }, [selected]);
+
+  return <div ref={mapRef} className="spacesMapCanvas" />;
+}
+
+
 function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
   const [query, setQuery] = useState("");
   const [selectedName, setSelectedName] = useState("");
   const [filter, setFilter] = useState("all");
+  const [districtFilter, setDistrictFilter] = useState("all");
+  const [viewMode, setViewMode] = useState("list");
+  const [baseMap, setBaseMap] = useState("positron");
+
+  const allSpaces = useMemo(() => buildDerivedSpaces(rows, apiSpaces), [rows, apiSpaces]);
+
+  const districtOptions = useMemo(() => {
+    return Array.from(new Set(allSpaces.map((space) => space.districte).filter(Boolean))).sort((a, b) =>
+      a.localeCompare(b, "ca")
+    );
+  }, [allSpaces]);
 
   const spaces = useMemo(() => {
-    return buildDerivedSpaces(rows, apiSpaces).filter((space) => {
+    return allSpaces.filter((space) => {
       const text = [
         space.title,
         space.title_es,
@@ -1458,12 +1641,15 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
         (filter === "ambMapa" && space.latitud && space.longitud) ||
         (filter === "senseVincle" && !space.matched);
 
-      return matchesQuery && matchesFilter;
+      const matchesDistrict = districtFilter === "all" || space.districte === districtFilter;
+
+      return matchesQuery && matchesFilter && matchesDistrict;
     });
-  }, [rows, apiSpaces, query, filter]);
+  }, [allSpaces, query, filter, districtFilter]);
 
   const selected = spaces.find((space) => space.title === selectedName) || spaces[0] || null;
-  const unlinkedCount = buildDerivedSpaces(rows, apiSpaces).filter((space) => !space.matched).length;
+  const unlinkedCount = allSpaces.filter((space) => !space.matched).length;
+  const spacesWithMap = spaces.filter((space) => space.latitud && space.longitud);
 
   function openActivity(row) {
     setSelectedActivityId(row._row || row.idIntern);
@@ -1474,13 +1660,13 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
     <>
       <Top
         title="Espais"
-        subtitle="Espais del programa amb coordenades, imatges i activitats vinculades."
+        subtitle="Espais del programa amb coordenades, imatges, mapa i activitats vinculades."
       />
 
       <div className="stats dashboardStats">
         <KpiCard icon="🏛️" tone="blue" label="Espais" value={spaces.length} />
         <KpiCard icon="🎟️" tone="green" label="Passis vinculats" value={rows.filter((row) => row.espai).length} />
-        <KpiCard icon="📍" tone="purple" label="Amb coordenades" value={spaces.filter((space) => space.latitud && space.longitud).length} />
+        <KpiCard icon="📍" tone="purple" label="Amb coordenades" value={spacesWithMap.length} />
         <KpiCard icon="🖼️" tone="yellow" label="Amb imatge" value={spaces.filter((space) => space.imatge).length} />
         <KpiCard icon="⚠️" tone="peach" label="Sense vincle exacte" value={unlinkedCount} />
       </div>
@@ -1516,41 +1702,93 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
               </button>
             ))}
           </div>
+
+          <div className="selectFilters spacesSelectFilters">
+            <label>
+              <span>Districte</span>
+              <select value={districtFilter} onChange={(e) => setDistrictFilter(e.target.value)}>
+                <option value="all">Tots els districtes</option>
+                {districtOptions.map((district) => (
+                  <option key={district} value={district}>
+                    {district}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>Vista</span>
+              <select value={viewMode} onChange={(e) => setViewMode(e.target.value)}>
+                <option value="list">Llista</option>
+                <option value="map">Mapa</option>
+              </select>
+            </label>
+
+            {viewMode === "map" && (
+              <label>
+                <span>Base cartogràfica</span>
+                <select value={baseMap} onChange={(e) => setBaseMap(e.target.value)}>
+                  <option value="positron">CartoDB Positron · minimalista</option>
+                  <option value="voyager">CartoDB Voyager · net informatiu</option>
+                  <option value="toner">Toner Lite · blanc i negre</option>
+                  <option value="osm">OpenStreetMap · estàndard</option>
+                </select>
+              </label>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="spacesLayout">
-        <div className="spacesList">
-          {spaces.map((space) => (
-            <button
-              key={`${space.title}-${space.id}`}
-              className={`spaceCard ${selected?.title === space.title ? "selected" : ""}`}
-              onClick={() => setSelectedName(space.title)}
-            >
-              <div className="spaceThumb">
-                {space.imatge ? (
-                  <img src={normalizeImageUrl(space.imatge)} alt={space.title} referrerPolicy="no-referrer" />
-                ) : (
-                  <span>Sense imatge</span>
-                )}
-              </div>
-
-              <div>
-                <div className="badges">
-                  <Badge>{space.districte || "Sense districte"}</Badge>
-                  {space.latitud && space.longitud && <Badge tone="success">Mapa</Badge>}
-                  {!space.matched && <Badge tone="warning">Revisar vincle</Badge>}
+      {viewMode === "list" ? (
+        <div className="spacesLayout">
+          <div className="spacesList">
+            {spaces.map((space) => (
+              <button
+                key={`${space.title}-${space.id}`}
+                className={`spaceCard ${selected?.title === space.title ? "selected" : ""}`}
+                onClick={() => setSelectedName(space.title)}
+              >
+                <div className="spaceThumb">
+                  {space.imatge ? (
+                    <img src={normalizeImageUrl(space.imatge)} alt={space.title} referrerPolicy="no-referrer" />
+                  ) : (
+                    <span>Sense imatge</span>
+                  )}
                 </div>
-                <h3>{space.title}</h3>
-                <p>{space.adreca || "Adreça pendent"}</p>
-                <small>{space.count} passis vinculats</small>
-              </div>
-            </button>
-          ))}
-        </div>
 
-        <SpaceDetail space={selected} onOpenActivity={openActivity} />
-      </div>
+                <div>
+                  <div className="badges">
+                    <Badge>{space.districte || "Sense districte"}</Badge>
+                    {space.latitud && space.longitud && <Badge tone="success">Mapa</Badge>}
+                    {!space.matched && <Badge tone="warning">Revisar vincle</Badge>}
+                  </div>
+                  <h3>{space.title}</h3>
+                  <p>{space.adreca || "Adreça pendent"}</p>
+                  <small>{space.count} passis vinculats</small>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          <SpaceDetail space={selected} onOpenActivity={openActivity} />
+        </div>
+      ) : (
+        <div className="spacesMapLayout">
+          <div className="spacesMapPanel">
+            <SpacesMap
+              spaces={spacesWithMap}
+              selected={selected}
+              setSelectedName={setSelectedName}
+              baseMap={baseMap}
+            />
+            <div className="mapHint">
+              <strong>{spacesWithMap.length}</strong> espais amb coordenades · els punts s’agrupen quan el mapa està allunyat
+            </div>
+          </div>
+
+          <SpaceDetail space={selected} onOpenActivity={openActivity} />
+        </div>
+      )}
     </>
   );
 }
@@ -2480,9 +2718,8 @@ function App() {
     Promise.all([
       loadPassisFromIndex(),
       loadInscripcionsFromCsv().catch(() => []),
-      loadEspaisFromCsv().catch(() => []),
     ])
-      .then(([jsonRows, inscripcionsRowsRaw, espaisRowsRaw]) => {
+      .then(([jsonRows, inscripcionsRowsRaw]) => {
         const passis = jsonRows
           .filter((row) => row.id || row.id_intern || row.titol_activitat || row.titol_activitat_cat)
           .map((row) =>
@@ -2524,20 +2761,29 @@ function App() {
           .filter((row) => row.id || row.id_intern || row.id_web || row.nom || row.cognom)
           .map(normalizeInscripcio);
 
-        const espaisNormalitzats = espaisRowsRaw
-          .filter((row) => row.title_ca || row.adreca || row.latitud || row.longitud)
-          .map(normalizeSpace);
-
         setRows(passis);
         setInscripcions(inscripcionsNormalitzades);
-        setApiSpaces(espaisNormalitzats);
+        setApiSpaces([]);
 
         if (passis[0]) {
           setSelectedActivityId(passis[0]._row || passis[0].idIntern);
         }
 
-        setStatus(`Dades carregades · ${passis.length} activitats · ${inscripcionsNormalitzades.length} inscripcions · ${espaisNormalitzats.length} espais`);
+        setStatus(`Dades carregades · ${passis.length} activitats · ${inscripcionsNormalitzades.length} inscripcions · carregant espais…`);
         setLoading(false);
+
+        loadEspaisFromCsv()
+          .then((espaisRowsRaw) => {
+            const espaisNormalitzats = espaisRowsRaw
+              .filter((row) => row.title_ca || row.adreca || row.latitud || row.longitud)
+              .map(normalizeSpace);
+
+            setApiSpaces(espaisNormalitzats);
+            setStatus(`Dades carregades · ${passis.length} activitats · ${inscripcionsNormalitzades.length} inscripcions · ${espaisNormalitzats.length} espais`);
+          })
+          .catch(() => {
+            setStatus(`Dades carregades · ${passis.length} activitats · ${inscripcionsNormalitzades.length} inscripcions · espais pendents`);
+          });
       })
       .catch((err) => {
         setError(err.message || "Error carregant dades");
@@ -2806,6 +3052,19 @@ p { color: #666; }
 .spaceGalleryPreview { width: 100%; border-radius: 22px; overflow: hidden; background: #f1f1ed; }
 .spaceGalleryPreview img { width: 100%; max-height: 260px; object-fit: cover; display: block; }
 
+
+.spacesSelectFilters { align-items: end; }
+.spacesMapLayout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(420px, .65fr); gap: 22px; align-items: start; }
+.spacesMapPanel { position: sticky; top: 28px; background: #fff; border: 1px solid #ddd; border-radius: 26px; padding: 14px; box-shadow: 0 1px 0 rgba(0,0,0,.02); }
+.spacesMapCanvas { width: 100%; height: calc(100vh - 250px); min-height: 560px; border-radius: 20px; overflow: hidden; background: #f1f1ed; }
+.mapHint { display: flex; gap: 6px; align-items: center; color: #666; font-size: 13px; padding: 12px 4px 2px; }
+.mapHint strong { color: #111; }
+.mapPopup { display: grid; gap: 4px; min-width: 160px; }
+.mapPopup strong { font-size: 14px; }
+.mapPopup span, .mapPopup small { color: #555; }
+.marker-cluster-small, .marker-cluster-medium, .marker-cluster-large { background-color: rgba(47, 111, 221, .18); }
+.marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div { background-color: rgba(47, 111, 221, .88); color: #fff; font-weight: 900; }
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -2817,6 +3076,10 @@ p { color: #666; }
   .spacesLayout { grid-template-columns: 1fr; }
   .spacesList { max-height: none; }
   .spaceDetailPanel { max-height: none; }
+
+  .spacesMapLayout { grid-template-columns: 1fr; }
+  .spacesMapPanel { position: static; }
+  .spacesMapCanvas { height: 520px; min-height: 420px; }
 
   .dashboardVisualGrid { grid-template-columns: 1fr; }
   .pieLayout { grid-template-columns: 1fr; justify-items: center; }
@@ -2951,6 +3214,19 @@ p { color: #666; }
 .spaceWebLinks { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0 18px; }
 .spaceGalleryPreview { width: 100%; border-radius: 22px; overflow: hidden; background: #f1f1ed; }
 .spaceGalleryPreview img { width: 100%; max-height: 260px; object-fit: cover; display: block; }
+
+
+.spacesSelectFilters { align-items: end; }
+.spacesMapLayout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(420px, .65fr); gap: 22px; align-items: start; }
+.spacesMapPanel { position: sticky; top: 28px; background: #fff; border: 1px solid #ddd; border-radius: 26px; padding: 14px; box-shadow: 0 1px 0 rgba(0,0,0,.02); }
+.spacesMapCanvas { width: 100%; height: calc(100vh - 250px); min-height: 560px; border-radius: 20px; overflow: hidden; background: #f1f1ed; }
+.mapHint { display: flex; gap: 6px; align-items: center; color: #666; font-size: 13px; padding: 12px 4px 2px; }
+.mapHint strong { color: #111; }
+.mapPopup { display: grid; gap: 4px; min-width: 160px; }
+.mapPopup strong { font-size: 14px; }
+.mapPopup span, .mapPopup small { color: #555; }
+.marker-cluster-small, .marker-cluster-medium, .marker-cluster-large { background-color: rgba(47, 111, 221, .18); }
+.marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div { background-color: rgba(47, 111, 221, .88); color: #fff; font-weight: 900; }
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -3220,6 +3496,19 @@ p { color: #666; }
 .spaceWebLinks { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0 18px; }
 .spaceGalleryPreview { width: 100%; border-radius: 22px; overflow: hidden; background: #f1f1ed; }
 .spaceGalleryPreview img { width: 100%; max-height: 260px; object-fit: cover; display: block; }
+
+
+.spacesSelectFilters { align-items: end; }
+.spacesMapLayout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(420px, .65fr); gap: 22px; align-items: start; }
+.spacesMapPanel { position: sticky; top: 28px; background: #fff; border: 1px solid #ddd; border-radius: 26px; padding: 14px; box-shadow: 0 1px 0 rgba(0,0,0,.02); }
+.spacesMapCanvas { width: 100%; height: calc(100vh - 250px); min-height: 560px; border-radius: 20px; overflow: hidden; background: #f1f1ed; }
+.mapHint { display: flex; gap: 6px; align-items: center; color: #666; font-size: 13px; padding: 12px 4px 2px; }
+.mapHint strong { color: #111; }
+.mapPopup { display: grid; gap: 4px; min-width: 160px; }
+.mapPopup strong { font-size: 14px; }
+.mapPopup span, .mapPopup small { color: #555; }
+.marker-cluster-small, .marker-cluster-medium, .marker-cluster-large { background-color: rgba(47, 111, 221, .18); }
+.marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div { background-color: rgba(47, 111, 221, .88); color: #fff; font-weight: 900; }
 
 @media (max-width: 1000px) {
   .activitySearchRow {
