@@ -1506,6 +1506,28 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
   const mapInstance = useRef(null);
   const markersLayer = useRef(null);
   const tileLayer = useRef(null);
+  const selectedMarker = useRef(null);
+  const initialFitDone = useRef(false);
+
+  const pointData = useMemo(() => {
+    return spaces
+      .map((space) => {
+        const lat = parseCoordinate(space.latitud);
+        const lon = parseCoordinate(space.longitud);
+
+        if (lat === null || lon === null) return null;
+
+        return {
+          title: space.title,
+          id: space.id,
+          lat,
+          lon,
+          count: space.count || 0,
+          districte: space.districte || "",
+        };
+      })
+      .filter(Boolean);
+  }, [spaces]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1519,6 +1541,7 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
           zoom: 12,
           zoomControl: true,
           scrollWheelZoom: true,
+          preferCanvas: true,
         });
       }
 
@@ -1531,7 +1554,25 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
       tileLayer.current = L.tileLayer(base.url, {
         attribution: base.attribution,
         maxZoom: 19,
+        updateWhenIdle: true,
+        keepBuffer: 2,
       }).addTo(mapInstance.current);
+
+      setTimeout(() => {
+        mapInstance.current?.invalidateSize();
+      }, 200);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [baseMap]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadLeafletAssets().then((L) => {
+      if (cancelled || !mapInstance.current) return;
 
       if (markersLayer.current) {
         markersLayer.current.remove();
@@ -1540,68 +1581,85 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
       markersLayer.current = L.markerClusterGroup({
         showCoverageOnHover: false,
         spiderfyOnMaxZoom: true,
-        maxClusterRadius: 48,
+        chunkedLoading: true,
+        chunkInterval: 60,
+        chunkDelay: 30,
+        maxClusterRadius: 52,
       });
 
+      const markers = [];
       const bounds = [];
 
-      spaces.forEach((space) => {
-        const lat = parseCoordinate(space.latitud);
-        const lon = parseCoordinate(space.longitud);
-
-        if (lat === null || lon === null) return;
-
-        const marker = L.marker([lat, lon]);
-        marker.bindPopup(`
-          <div class="mapPopup">
-            <strong>${space.title || "Espai"}</strong>
-            <span>${space.districte || ""}</span>
-            <small>${space.count || 0} passis vinculats</small>
-          </div>
-        `);
-
-        marker.on("click", () => {
-          setSelectedName(space.title);
+      pointData.forEach((point) => {
+        const marker = L.circleMarker([point.lat, point.lon], {
+          radius: Math.max(7, Math.min(18, 7 + point.count * 0.35)),
+          color: "#2f6fdd",
+          weight: 2,
+          fillColor: "#2f6fdd",
+          fillOpacity: 0.82,
         });
 
-        markersLayer.current.addLayer(marker);
-        bounds.push([lat, lon]);
+        marker.bindTooltip(
+          `${point.title}<br>${point.count} passis`,
+          { direction: "top", opacity: 0.95 }
+        );
+
+        marker.on("click", () => {
+          setSelectedName(point.title);
+        });
+
+        markers.push(marker);
+        bounds.push([point.lat, point.lon]);
       });
 
+      markersLayer.current.addLayers(markers);
       mapInstance.current.addLayer(markersLayer.current);
 
-      if (bounds.length > 1) {
-        mapInstance.current.fitBounds(bounds, { padding: [30, 30] });
-      } else if (bounds.length === 1) {
-        mapInstance.current.setView(bounds[0], 15);
-      }
+      if (!initialFitDone.current) {
+        if (bounds.length > 1) {
+          mapInstance.current.fitBounds(bounds, { padding: [30, 30] });
+        } else if (bounds.length === 1) {
+          mapInstance.current.setView(bounds[0], 15);
+        }
 
-      setTimeout(() => {
-        mapInstance.current?.invalidateSize();
-      }, 250);
+        initialFitDone.current = true;
+      }
     });
 
     return () => {
       cancelled = true;
     };
-  }, [spaces, setSelectedName, baseMap]);
+  }, [pointData, setSelectedName]);
 
   useEffect(() => {
-    if (!mapInstance.current || !selected?.latitud || !selected?.longitud) return;
+    if (!mapInstance.current || !selected?.latitud || !selected?.longitud || !window.L) return;
 
+    const L = window.L;
     const lat = parseCoordinate(selected.latitud);
     const lon = parseCoordinate(selected.longitud);
 
     if (lat === null || lon === null) return;
 
-    mapInstance.current.setView([lat, lon], Math.max(mapInstance.current.getZoom(), 15), {
-      animate: true,
+    if (selectedMarker.current) {
+      selectedMarker.current.remove();
+    }
+
+    selectedMarker.current = L.circleMarker([lat, lon], {
+      radius: 20,
+      color: "#111",
+      weight: 3,
+      fillColor: "#ffffff",
+      fillOpacity: 0.55,
+    }).addTo(mapInstance.current);
+
+    selectedMarker.current.bindTooltip(selected.title || "Espai seleccionat", {
+      permanent: false,
+      direction: "top",
     });
   }, [selected]);
 
   return <div ref={mapRef} className="spacesMapCanvas" />;
 }
-
 
 function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
   const [query, setQuery] = useState("");
@@ -1611,6 +1669,7 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
   const [viewMode, setViewMode] = useState("list");
   const [baseMap, setBaseMap] = useState("positron");
 
+  const espaisLoaded = apiSpaces.length > 0;
   const allSpaces = useMemo(() => buildDerivedSpaces(rows, apiSpaces), [rows, apiSpaces]);
 
   const districtOptions = useMemo(() => {
@@ -1639,16 +1698,16 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
         (filter === "ambActivitats" && space.count > 0) ||
         (filter === "senseActivitats" && space.count === 0) ||
         (filter === "ambMapa" && space.latitud && space.longitud) ||
-        (filter === "senseVincle" && !space.matched);
+        (filter === "senseVincle" && espaisLoaded && !space.matched);
 
       const matchesDistrict = districtFilter === "all" || space.districte === districtFilter;
 
       return matchesQuery && matchesFilter && matchesDistrict;
     });
-  }, [allSpaces, query, filter, districtFilter]);
+  }, [allSpaces, query, filter, districtFilter, espaisLoaded]);
 
   const selected = spaces.find((space) => space.title === selectedName) || spaces[0] || null;
-  const unlinkedCount = allSpaces.filter((space) => !space.matched).length;
+  const unlinkedCount = espaisLoaded ? allSpaces.filter((space) => !space.matched).length : 0;
   const spacesWithMap = spaces.filter((space) => space.latitud && space.longitud);
 
   function openActivity(row) {
@@ -1760,7 +1819,7 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
                   <div className="badges">
                     <Badge>{space.districte || "Sense districte"}</Badge>
                     {space.latitud && space.longitud && <Badge tone="success">Mapa</Badge>}
-                    {!space.matched && <Badge tone="warning">Revisar vincle</Badge>}
+                    {espaisLoaded && !space.matched && <Badge tone="warning">Revisar vincle</Badge>}
                   </div>
                   <h3>{space.title}</h3>
                   <p>{space.adreca || "Adreça pendent"}</p>
@@ -1770,7 +1829,7 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
             ))}
           </div>
 
-          <SpaceDetail space={selected} onOpenActivity={openActivity} />
+          <SpaceDetail space={selected} onOpenActivity={openActivity} espaisLoaded={espaisLoaded} />
         </div>
       ) : (
         <div className="spacesMapLayout">
@@ -1786,14 +1845,14 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
             </div>
           </div>
 
-          <SpaceDetail space={selected} onOpenActivity={openActivity} />
+          <SpaceDetail space={selected} onOpenActivity={openActivity} espaisLoaded={espaisLoaded} />
         </div>
       )}
     </>
   );
 }
 
-function SpaceDetail({ space, onOpenActivity }) {
+function SpaceDetail({ space, onOpenActivity, espaisLoaded = true }) {
   const [tab, setTab] = useState("general");
   const [imageFallbackIndex, setImageFallbackIndex] = useState(0);
 
@@ -1849,7 +1908,7 @@ function SpaceDetail({ space, onOpenActivity }) {
         {space.barri && <Badge>{space.barri}</Badge>}
         <Badge>{space.count} passis</Badge>
         {hasMap && <Badge tone="success">Coordenades</Badge>}
-        {!space.matched && <Badge tone="warning">Nom no vinculat exactament</Badge>}
+        {espaisLoaded && !space.matched && <Badge tone="warning">Nom no vinculat exactament</Badge>}
       </div>
 
       <h2>{space.title}</h2>
@@ -3065,6 +3124,10 @@ p { color: #666; }
 .marker-cluster-small, .marker-cluster-medium, .marker-cluster-large { background-color: rgba(47, 111, 221, .18); }
 .marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div { background-color: rgba(47, 111, 221, .88); color: #fff; font-weight: 900; }
 
+
+.leaflet-tooltip { border: 0 !important; border-radius: 12px !important; box-shadow: 0 8px 22px rgba(0,0,0,.12) !important; font-weight: 800; line-height: 1.25; padding: 8px 10px !important; }
+.leaflet-container { font-family: Inter, Arial, sans-serif; }
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -3227,6 +3290,10 @@ p { color: #666; }
 .mapPopup span, .mapPopup small { color: #555; }
 .marker-cluster-small, .marker-cluster-medium, .marker-cluster-large { background-color: rgba(47, 111, 221, .18); }
 .marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div { background-color: rgba(47, 111, 221, .88); color: #fff; font-weight: 900; }
+
+
+.leaflet-tooltip { border: 0 !important; border-radius: 12px !important; box-shadow: 0 8px 22px rgba(0,0,0,.12) !important; font-weight: 800; line-height: 1.25; padding: 8px 10px !important; }
+.leaflet-container { font-family: Inter, Arial, sans-serif; }
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -3509,6 +3576,10 @@ p { color: #666; }
 .mapPopup span, .mapPopup small { color: #555; }
 .marker-cluster-small, .marker-cluster-medium, .marker-cluster-large { background-color: rgba(47, 111, 221, .18); }
 .marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div { background-color: rgba(47, 111, 221, .88); color: #fff; font-weight: 900; }
+
+
+.leaflet-tooltip { border: 0 !important; border-radius: 12px !important; box-shadow: 0 8px 22px rgba(0,0,0,.12) !important; font-weight: 800; line-height: 1.25; padding: 8px 10px !important; }
+.leaflet-container { font-family: Inter, Arial, sans-serif; }
 
 @media (max-width: 1000px) {
   .activitySearchRow {
