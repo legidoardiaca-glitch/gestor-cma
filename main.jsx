@@ -287,6 +287,64 @@ function getSafeFileName(value) {
     .slice(0, 70) || "activitat";
 }
 
+
+function parseEntrades(value) {
+  const text = String(value ?? "").trim();
+
+  if (!text) return 1;
+
+  const number = Number(text.replace(",", "."));
+  return Number.isFinite(number) && number > 0 ? number : 1;
+}
+
+function normalizeGender(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+
+  if (["f", "femeni", "femení", "female", "dona", "woman"].includes(text)) {
+    return "♀ Femení";
+  }
+
+  if (["m", "masculi", "masculí", "male", "home", "man"].includes(text)) {
+    return "♂ Masculí";
+  }
+
+  return "○ Sense resposta / altres";
+}
+
+function translateMeetUs(value) {
+  const text = String(value ?? "").trim();
+  const key = text.toLowerCase();
+
+  const dictionary = {
+    "official website": "Web oficial",
+    "website": "Web oficial",
+    "web": "Web oficial",
+    "newsletter / email": "Butlletí / correu",
+    "newsletter": "Butlletí / correu",
+    "email": "Butlletí / correu",
+    "social media": "Xarxes socials",
+    "social networks": "Xarxes socials",
+    "instagram": "Xarxes socials",
+    "facebook": "Xarxes socials",
+    "x / twitter": "Xarxes socials",
+    "friends / acquaintances": "Amics o coneguts",
+    "friends": "Amics o coneguts",
+    "word of mouth": "Amics o coneguts",
+    "posters or brochures": "Cartells o fullets",
+    "posters": "Cartells o fullets",
+    "brochures": "Cartells o fullets",
+    "press / media": "Premsa o mitjans",
+    "press": "Premsa o mitjans",
+    "media": "Premsa o mitjans",
+    "others": "Altres",
+    "other": "Altres",
+    "altre": "Altres",
+    "altres": "Altres",
+  };
+
+  return dictionary[key] || text || "Sense resposta";
+}
+
 function normalizeRow(row) {
   return {
     _row: row._row || row._rowNumber || "",
@@ -353,16 +411,17 @@ function normalizeInscripcio(row) {
     idWeb: String(row.id_web || ""),
     titolWeb: String(row.titol_activitat_web || ""),
     categoria: String(row.categoria || ""),
-    districte: String(row.districte || ""),
+    districteActivitat: String(row.districte || ""),
     nom: String(row.nom || ""),
     cognom: String(row.cognom || ""),
-    entrades: Number(String(row.entrades || "1").replace(",", ".")) || 0,
+    entrades: parseEntrades(row.entrades),
     codiPostal: String(row.codi_postal || ""),
+    procedenciaDistricte: String(row.barri || ""),
     barri: String(row.barri || ""),
     ciutat: String(row.ciutat || ""),
-    genere: String(row.genere || row.g_nere || ""),
+    genere: normalizeGender(row.genere || row.g_nere),
     esArquitecte: String(row.for_statistical_purposes_we_would_like_to_know_whether_you_are_an_architect || ""),
-    comEnsConeix: String(row.how_did_you_meet_us || ""),
+    comEnsConeix: translateMeetUs(row.how_did_you_meet_us),
   };
 }
 
@@ -1595,14 +1654,14 @@ function TypeDonut({ title, data }) {
     <ChartCard title={title} icon="◔" totalLabel={`Total: ${total} activitats`}>
       <div className="donutCardBody">
         <div className="donutWrap">
-          <ResponsiveContainer width="100%" height={260}>
+          <ResponsiveContainer width="100%" height={230}>
             <PieChart>
               <Pie
                 data={chartData}
                 dataKey="value"
                 nameKey="name"
-                innerRadius={68}
-                outerRadius={110}
+                innerRadius={56}
+                outerRadius={92}
                 paddingAngle={1}
                 label={({ percent }) => `${percent}%`}
               >
@@ -1779,6 +1838,101 @@ function Chart({ title, data }) {
 
 
 
+function KpiCardClean({ label, value }) {
+  return (
+    <div className="kpiCard clean">
+      <div>
+        <div className="kpiValue">{value}</div>
+        <div className="kpiLabel">{label}</div>
+      </div>
+    </div>
+  );
+}
+
+function CompactRankList({ title, data, icon = "≡", totalLabel = "" }) {
+  const entries = toChartEntries(data, 12);
+  const max = Math.max(...entries.map((item) => item.value), 1);
+  const total = entries.reduce((sum, item) => sum + item.value, 0);
+
+  return (
+    <ChartCard title={title} icon={icon} totalLabel={totalLabel || `Total: ${total}`}>
+      <div className="compactRankList">
+        {entries.map((item) => (
+          <div className="compactRankRow" key={item.name}>
+            <div className="compactRankTop">
+              <span>{item.name || "Sense dades"}</span>
+              <b>{item.value}</b>
+            </div>
+            <div className="compactRankTrack">
+              <i style={{ width: `${(item.value / max) * 100}%`, background: item.color }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </ChartCard>
+  );
+}
+
+function ProcedenciaDistrictMap({ title, data }) {
+  const districtData = Object.fromEntries(
+    Object.entries(data).map(([key, value]) => [String(key).replace(/^\d+\s*/, ""), value])
+  );
+
+  return <DistrictOriginMap title={title} data={districtData} />;
+}
+
+function DistrictOriginMap({ title, data }) {
+  const districts = [
+    ["Ciutat Vella", "CV"],
+    ["Eixample", "EX"],
+    ["Sants-Montjuïc", "SM"],
+    ["Les Corts", "LC"],
+    ["Sarrià-Sant Gervasi", "SSG"],
+    ["Gràcia", "GR"],
+    ["Horta-Guinardó", "HG"],
+    ["Nou Barris", "NB"],
+    ["Sant Andreu", "SA"],
+    ["Sant Martí", "ST"],
+  ];
+
+  function getValue(name) {
+    const normalizedName = name.toLowerCase();
+    const found = Object.entries(data).find(([key]) =>
+      String(key).toLowerCase().includes(normalizedName) ||
+      normalizedName.includes(String(key).toLowerCase())
+    );
+
+    return found ? found[1] : 0;
+  }
+
+  const total = districts.reduce((sum, [name]) => sum + getValue(name), 0);
+  const max = Math.max(...districts.map(([name]) => getValue(name)), 1);
+
+  return (
+    <ChartCard title={title} icon="⌖" totalLabel={`Total: ${total} inscripcions`}>
+      <div className="districtOriginMap">
+        {districts.map(([name, short], index) => {
+          const value = getValue(name);
+          const intensity = value / max;
+
+          return (
+            <div
+              key={name}
+              className={`originDistrictCell od${index + 1}`}
+              style={{ opacity: 0.28 + intensity * 0.72 }}
+              title={`${name}: ${value}`}
+            >
+              <strong>{short}</strong>
+              <span>{value}</span>
+              <small>{name}</small>
+            </div>
+          );
+        })}
+      </div>
+    </ChartCard>
+  );
+}
+
 function InscripcionsView({ inscripcions }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
@@ -1791,11 +1945,11 @@ function InscripcionsView({ inscripcions }) {
         row.idWeb,
         row.titolWeb,
         row.categoria,
-        row.districte,
+        row.districteActivitat,
         row.nom,
         row.cognom,
         row.codiPostal,
-        row.barri,
+        row.procedenciaDistricte,
         row.ciutat,
         row.genere,
         row.esArquitecte,
@@ -1809,7 +1963,7 @@ function InscripcionsView({ inscripcions }) {
         filter === "all" ||
         (filter === "arquitectes" && (architectText.includes("yes") || architectText.includes("sí") || architectText.includes("si"))) ||
         (filter === "bcn" && row.ciutat.toLowerCase().includes("barcelona")) ||
-        (filter === "senseDistricte" && !row.districte);
+        (filter === "senseProcedencia" && !row.procedenciaDistricte);
 
       return matchesQuery && matchesFilter;
     });
@@ -1831,15 +1985,15 @@ function InscripcionsView({ inscripcions }) {
     <>
       <Top
         title="Dades inscripcions"
-        subtitle="Visió de les persones inscrites, entrades, activitats, districtes i perfils de públic."
+        subtitle="Visió de les persones inscrites: entrades, perfils, origen del públic i canals d’arribada."
       />
 
       <div className="stats dashboardStats">
         <KpiCard icon="👥" tone="blue" label="Inscripcions" value={filtered.length} />
-        <KpiCard icon="🎟️" tone="green" label="Entrades" value={totalEntrades} />
+        <KpiCardClean label="Entrades" value={totalEntrades} />
         <KpiCard icon="🌐" tone="purple" label="Activitats web" value={uniqueCount(filtered, "idWeb")} />
-        <KpiCard icon="📍" tone="yellow" label="Districtes" value={uniqueCount(filtered, "districte")} />
-        <KpiCard icon="🏙️" tone="peach" label="Barris" value={uniqueCount(filtered, "barri")} />
+        <KpiCard icon="📍" tone="yellow" label="Districtes activitat" value={uniqueCount(filtered, "districteActivitat")} />
+        <KpiCard icon="⌖" tone="peach" label="Districtes origen" value={uniqueCount(filtered, "procedenciaDistricte")} />
       </div>
 
       <div className="toolbar activitiesToolbar">
@@ -1847,7 +2001,7 @@ function InscripcionsView({ inscripcions }) {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar per activitat, nom, barri, ciutat, districte..."
+            placeholder="Buscar per activitat, nom, procedència, ciutat, districte..."
           />
           <div className="resultsCounter">
             <strong>{filtered.length}</strong>
@@ -1861,7 +2015,7 @@ function InscripcionsView({ inscripcions }) {
               { id: "all", label: "Tot" },
               { id: "arquitectes", label: "Arquitectes" },
               { id: "bcn", label: "Barcelona" },
-              { id: "senseDistricte", label: "Sense districte" },
+              { id: "senseProcedencia", label: "Sense procedència" },
             ].map((item) => (
               <button
                 key={item.id}
@@ -1876,100 +2030,15 @@ function InscripcionsView({ inscripcions }) {
       </div>
 
       <div className="dashboardChartsGrid inscriptionsChartsGrid">
-        <InscriptionsActivityBars title="Inscripcions per activitat web" data={countBy(filtered, "idWeb")} />
         <TypeDonut title="Inscripcions per categoria" data={countBy(filtered, "categoria")} />
-        <DistrictBars title="Inscripcions per districte" data={countBy(filtered, "districte")} />
         <TypeDonut title="Perfil arquitecte" data={architectData} />
-        <ManagerBars title="Com ens han conegut?" data={countBy(filtered, "comEnsConeix")} />
-        <ManagerBars title="Inscripcions per ciutat" data={countBy(filtered, "ciutat")} />
+        <TypeDonut title="Gènere" data={countBy(filtered, "genere")} />
+        <DistrictBars title="Inscripcions per districte de l’activitat" data={countBy(filtered, "districteActivitat")} />
+        <CompactRankList title="Com ens han conegut?" data={countBy(filtered, "comEnsConeix")} icon="↗" totalLabel={`${filtered.length} respostes`} />
+        <CompactRankList title="Inscripcions per ciutat" data={countBy(filtered, "ciutat")} icon="⌂" totalLabel={`${filtered.length} inscripcions`} />
+        <ProcedenciaDistrictMap title="Procedència dels inscrits" data={countBy(filtered, "procedenciaDistricte")} />
       </div>
-
-      <section className="chartCard inscriptionsTableCard">
-        <div className="chartCardHeader">
-          <div className="chartTitle">
-            <span>≡</span>
-            <h2>Registre d’inscripcions</h2>
-          </div>
-          <span className="chartTotal">{filtered.length} registres</span>
-        </div>
-
-        <div className="inscriptionsTableWrap">
-          <table className="inscriptionsTable">
-            <thead>
-              <tr>
-                <th>ID WEB</th>
-                <th>Activitat</th>
-                <th>Nom</th>
-                <th>Entrades</th>
-                <th>Barri</th>
-                <th>Ciutat</th>
-                <th>Districte</th>
-                <th>Arquitecte?</th>
-                <th>Origen</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.slice(0, 500).map((row) => (
-                <tr key={`${row.idWeb}-${row.nom}-${row.cognom}-${row._row}`}>
-                  <td>{row.idWeb || "—"}</td>
-                  <td>{row.titolWeb || "—"}</td>
-                  <td>{`${row.nom} ${row.cognom}`.trim() || "—"}</td>
-                  <td>{row.entrades || "—"}</td>
-                  <td>{row.barri || "—"}</td>
-                  <td>{row.ciutat || "—"}</td>
-                  <td>{row.districte || "—"}</td>
-                  <td>{row.esArquitecte || "—"}</td>
-                  <td>{row.comEnsConeix || "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {filtered.length > 500 && (
-          <div className="notice">
-            S’estan mostrant les primeres 500 files de {filtered.length}. Utilitza el cercador per afinar resultats.
-          </div>
-        )}
-      </section>
     </>
-  );
-}
-
-function InscriptionsActivityBars({ title, data }) {
-  const entries = toChartEntries(data, 12).map((item) => ({
-    ...item,
-    label: item.name || "Sense ID WEB",
-  }));
-
-  const total = entries.reduce((sum, item) => sum + item.value, 0);
-
-  return (
-    <ChartCard title={title} icon="▤" totalLabel={`Total: ${total} inscripcions`}>
-      <div className="chartBody">
-        <ResponsiveContainer width="100%" height={330}>
-          <BarChart
-            data={entries}
-            layout="vertical"
-            margin={{ top: 12, right: 34, bottom: 10, left: 90 }}
-          >
-            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-            <XAxis type="number" tickLine={false} axisLine={false} />
-            <YAxis
-              type="category"
-              dataKey="label"
-              width={150}
-              tickLine={false}
-              axisLine={false}
-              interval={0}
-              tick={{ fontSize: 11 }}
-            />
-            <Tooltip />
-            <Bar dataKey="value" fill="#8b74d6" radius={[0, 7, 7, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-    </ChartCard>
   );
 }
 
@@ -2281,13 +2350,33 @@ p { color: #666; }
 .clickableRows button:hover { background: #111; color: #fff; border-color: #111; }
 
 
+.kpiCard.clean { justify-content: center; text-align: left; }
+.kpiCard.clean .kpiValue { font-size: 34px; }
 .inscriptionsChartsGrid { margin-top: 18px; }
-.inscriptionsTableCard { margin-top: 18px; }
-.inscriptionsTableWrap { width: 100%; overflow: auto; border-radius: 18px; border: 1px solid #e7e7e2; background: #fff; }
-.inscriptionsTable { width: 100%; border-collapse: collapse; font-size: 13px; }
-.inscriptionsTable th { text-align: left; color: #666; font-size: 12px; padding: 12px 10px; border-bottom: 1px solid #ddd; white-space: nowrap; background: #f7f7f5; }
-.inscriptionsTable td { padding: 12px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
-.inscriptionsTable tr:hover td { background: #f7f7f5; }
+.compactRankList { display: flex; flex-direction: column; gap: 13px; padding: 8px 2px 2px; }
+.compactRankRow { display: grid; gap: 7px; }
+.compactRankTop { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; font-size: 13px; }
+.compactRankTop span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #333; font-weight: 700; }
+.compactRankTop b { color: #111; }
+.compactRankTrack { height: 9px; border-radius: 999px; background: #ededeb; overflow: hidden; }
+.compactRankTrack i { display: block; height: 100%; border-radius: 999px; }
+.districtOriginMap { display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(4, 78px); gap: 8px; min-height: 330px; }
+.originDistrictCell { background: #2f6fdd; color: #fff; border-radius: 18px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; min-width: 0; }
+.originDistrictCell strong { font-size: 17px; }
+.originDistrictCell span { font-size: 23px; font-weight: 900; line-height: 1; }
+.originDistrictCell small { font-size: 10px; line-height: 1.05; opacity: .92; }
+.originDistrictCell.od1 { grid-column: 3; grid-row: 3; }
+.originDistrictCell.od2 { grid-column: 3; grid-row: 2; }
+.originDistrictCell.od3 { grid-column: 2; grid-row: 3; }
+.originDistrictCell.od4 { grid-column: 1; grid-row: 3; }
+.originDistrictCell.od5 { grid-column: 1 / span 2; grid-row: 2; }
+.originDistrictCell.od6 { grid-column: 3; grid-row: 1; }
+.originDistrictCell.od7 { grid-column: 2 / span 2; grid-row: 1; }
+.originDistrictCell.od8 { grid-column: 4; grid-row: 1; }
+.originDistrictCell.od9 { grid-column: 4; grid-row: 2; }
+.originDistrictCell.od10 { grid-column: 4 / span 2; grid-row: 3; }
+.donutWrap .recharts-wrapper { overflow: visible; }
+.donutWrap svg { overflow: visible; }
 
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
@@ -2354,13 +2443,33 @@ p { color: #666; }
 .recharts-default-tooltip { border-radius: 12px !important; border-color: #ddd !important; }
 @media (max-width: 1280px) { .donutCardBody { grid-template-columns: 1fr; } .donutWrap { max-width: 320px; width: 100%; margin: 0 auto; } }
 
+.kpiCard.clean { justify-content: center; text-align: left; }
+.kpiCard.clean .kpiValue { font-size: 34px; }
 .inscriptionsChartsGrid { margin-top: 18px; }
-.inscriptionsTableCard { margin-top: 18px; }
-.inscriptionsTableWrap { width: 100%; overflow: auto; border-radius: 18px; border: 1px solid #e7e7e2; background: #fff; }
-.inscriptionsTable { width: 100%; border-collapse: collapse; font-size: 13px; }
-.inscriptionsTable th { text-align: left; color: #666; font-size: 12px; padding: 12px 10px; border-bottom: 1px solid #ddd; white-space: nowrap; background: #f7f7f5; }
-.inscriptionsTable td { padding: 12px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
-.inscriptionsTable tr:hover td { background: #f7f7f5; }
+.compactRankList { display: flex; flex-direction: column; gap: 13px; padding: 8px 2px 2px; }
+.compactRankRow { display: grid; gap: 7px; }
+.compactRankTop { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; font-size: 13px; }
+.compactRankTop span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #333; font-weight: 700; }
+.compactRankTop b { color: #111; }
+.compactRankTrack { height: 9px; border-radius: 999px; background: #ededeb; overflow: hidden; }
+.compactRankTrack i { display: block; height: 100%; border-radius: 999px; }
+.districtOriginMap { display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(4, 78px); gap: 8px; min-height: 330px; }
+.originDistrictCell { background: #2f6fdd; color: #fff; border-radius: 18px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; min-width: 0; }
+.originDistrictCell strong { font-size: 17px; }
+.originDistrictCell span { font-size: 23px; font-weight: 900; line-height: 1; }
+.originDistrictCell small { font-size: 10px; line-height: 1.05; opacity: .92; }
+.originDistrictCell.od1 { grid-column: 3; grid-row: 3; }
+.originDistrictCell.od2 { grid-column: 3; grid-row: 2; }
+.originDistrictCell.od3 { grid-column: 2; grid-row: 3; }
+.originDistrictCell.od4 { grid-column: 1; grid-row: 3; }
+.originDistrictCell.od5 { grid-column: 1 / span 2; grid-row: 2; }
+.originDistrictCell.od6 { grid-column: 3; grid-row: 1; }
+.originDistrictCell.od7 { grid-column: 2 / span 2; grid-row: 1; }
+.originDistrictCell.od8 { grid-column: 4; grid-row: 1; }
+.originDistrictCell.od9 { grid-column: 4; grid-row: 2; }
+.originDistrictCell.od10 { grid-column: 4 / span 2; grid-row: 3; }
+.donutWrap .recharts-wrapper { overflow: visible; }
+.donutWrap svg { overflow: visible; }
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -2554,13 +2663,33 @@ p { color: #666; }
 }
 
 
+.kpiCard.clean { justify-content: center; text-align: left; }
+.kpiCard.clean .kpiValue { font-size: 34px; }
 .inscriptionsChartsGrid { margin-top: 18px; }
-.inscriptionsTableCard { margin-top: 18px; }
-.inscriptionsTableWrap { width: 100%; overflow: auto; border-radius: 18px; border: 1px solid #e7e7e2; background: #fff; }
-.inscriptionsTable { width: 100%; border-collapse: collapse; font-size: 13px; }
-.inscriptionsTable th { text-align: left; color: #666; font-size: 12px; padding: 12px 10px; border-bottom: 1px solid #ddd; white-space: nowrap; background: #f7f7f5; }
-.inscriptionsTable td { padding: 12px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
-.inscriptionsTable tr:hover td { background: #f7f7f5; }
+.compactRankList { display: flex; flex-direction: column; gap: 13px; padding: 8px 2px 2px; }
+.compactRankRow { display: grid; gap: 7px; }
+.compactRankTop { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; font-size: 13px; }
+.compactRankTop span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #333; font-weight: 700; }
+.compactRankTop b { color: #111; }
+.compactRankTrack { height: 9px; border-radius: 999px; background: #ededeb; overflow: hidden; }
+.compactRankTrack i { display: block; height: 100%; border-radius: 999px; }
+.districtOriginMap { display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(4, 78px); gap: 8px; min-height: 330px; }
+.originDistrictCell { background: #2f6fdd; color: #fff; border-radius: 18px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; min-width: 0; }
+.originDistrictCell strong { font-size: 17px; }
+.originDistrictCell span { font-size: 23px; font-weight: 900; line-height: 1; }
+.originDistrictCell small { font-size: 10px; line-height: 1.05; opacity: .92; }
+.originDistrictCell.od1 { grid-column: 3; grid-row: 3; }
+.originDistrictCell.od2 { grid-column: 3; grid-row: 2; }
+.originDistrictCell.od3 { grid-column: 2; grid-row: 3; }
+.originDistrictCell.od4 { grid-column: 1; grid-row: 3; }
+.originDistrictCell.od5 { grid-column: 1 / span 2; grid-row: 2; }
+.originDistrictCell.od6 { grid-column: 3; grid-row: 1; }
+.originDistrictCell.od7 { grid-column: 2 / span 2; grid-row: 1; }
+.originDistrictCell.od8 { grid-column: 4; grid-row: 1; }
+.originDistrictCell.od9 { grid-column: 4; grid-row: 2; }
+.originDistrictCell.od10 { grid-column: 4 / span 2; grid-row: 3; }
+.donutWrap .recharts-wrapper { overflow: visible; }
+.donutWrap svg { overflow: visible; }
 
 @media (max-width: 1000px) {
   .activitySearchRow {
