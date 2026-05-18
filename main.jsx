@@ -1541,7 +1541,7 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
           zoom: 12,
           zoomControl: true,
           scrollWheelZoom: true,
-          preferCanvas: true,
+          preferCanvas: false,
         });
       }
 
@@ -1587,22 +1587,26 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
         maxClusterRadius: 52,
       });
 
+      const icon = L.divIcon({
+        className: "spaceMapMarker",
+        html: "<span></span>",
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+      });
+
       const markers = [];
       const bounds = [];
 
       pointData.forEach((point) => {
-        const marker = L.circleMarker([point.lat, point.lon], {
-          radius: Math.max(7, Math.min(18, 7 + point.count * 0.35)),
-          color: "#2f6fdd",
-          weight: 2,
-          fillColor: "#2f6fdd",
-          fillOpacity: 0.82,
-        });
+        const marker = L.marker([point.lat, point.lon], { icon });
 
-        marker.bindTooltip(
-          `${point.title}<br>${point.count} passis`,
-          { direction: "top", opacity: 0.95 }
-        );
+        marker.bindPopup(`
+          <div class="mapPopup">
+            <strong>${point.title || "Espai"}</strong>
+            <span>${point.districte || ""}</span>
+            <small>${point.count || 0} passis vinculats</small>
+          </div>
+        `);
 
         marker.on("click", () => {
           setSelectedName(point.title);
@@ -1624,6 +1628,10 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
 
         initialFitDone.current = true;
       }
+
+      setTimeout(() => {
+        mapInstance.current?.invalidateSize();
+      }, 250);
     });
 
     return () => {
@@ -1644,17 +1652,17 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap }) {
       selectedMarker.current.remove();
     }
 
-    selectedMarker.current = L.circleMarker([lat, lon], {
-      radius: 20,
-      color: "#111",
-      weight: 3,
-      fillColor: "#ffffff",
-      fillOpacity: 0.55,
+    selectedMarker.current = L.marker([lat, lon], {
+      icon: L.divIcon({
+        className: "spaceMapMarker selected",
+        html: "<span></span>",
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+      }),
     }).addTo(mapInstance.current);
 
-    selectedMarker.current.bindTooltip(selected.title || "Espai seleccionat", {
-      permanent: false,
-      direction: "top",
+    mapInstance.current.setView([lat, lon], Math.max(mapInstance.current.getZoom(), 15), {
+      animate: true,
     });
   }, [selected]);
 
@@ -1706,7 +1714,8 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
     });
   }, [allSpaces, query, filter, districtFilter, espaisLoaded]);
 
-  const selected = spaces.find((space) => space.title === selectedName) || spaces[0] || null;
+  const selectedFromName = spaces.find((space) => space.title === selectedName) || null;
+  const selected = viewMode === "map" ? selectedFromName : selectedFromName || spaces[0] || null;
   const unlinkedCount = espaisLoaded ? allSpaces.filter((space) => !space.matched).length : 0;
   const spacesWithMap = spaces.filter((space) => space.latitud && space.longitud);
 
@@ -1845,7 +1854,14 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
             </div>
           </div>
 
-          <SpaceDetail space={selected} onOpenActivity={openActivity} espaisLoaded={espaisLoaded} />
+          {selected ? (
+            <SpaceDetail space={selected} onOpenActivity={openActivity} espaisLoaded={espaisLoaded} />
+          ) : (
+            <div className="panel mapEmptyPanel">
+              <h2>Selecciona un punt al mapa</h2>
+              <p>Clica qualsevol marcador per obrir la fitxa completa de l’espai, amb imatge, mapa, activitats vinculades i calendari.</p>
+            </div>
+          )}
         </div>
       )}
     </>
@@ -3128,6 +3144,14 @@ p { color: #666; }
 .leaflet-tooltip { border: 0 !important; border-radius: 12px !important; box-shadow: 0 8px 22px rgba(0,0,0,.12) !important; font-weight: 800; line-height: 1.25; padding: 8px 10px !important; }
 .leaflet-container { font-family: Inter, Arial, sans-serif; }
 
+
+.spaceMapMarker { background: transparent; border: 0; }
+.spaceMapMarker span { display: block; width: 22px; height: 22px; border-radius: 999px; background: #2f6fdd; border: 3px solid #fff; box-shadow: 0 6px 18px rgba(0,0,0,.22); }
+.spaceMapMarker.selected span { width: 32px; height: 32px; background: #111; border: 4px solid #fff; box-shadow: 0 8px 26px rgba(0,0,0,.32); }
+.mapEmptyPanel { min-height: 360px; display: flex; flex-direction: column; justify-content: center; }
+.mapEmptyPanel h2 { font-size: 28px; }
+.mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -3294,6 +3318,14 @@ p { color: #666; }
 
 .leaflet-tooltip { border: 0 !important; border-radius: 12px !important; box-shadow: 0 8px 22px rgba(0,0,0,.12) !important; font-weight: 800; line-height: 1.25; padding: 8px 10px !important; }
 .leaflet-container { font-family: Inter, Arial, sans-serif; }
+
+
+.spaceMapMarker { background: transparent; border: 0; }
+.spaceMapMarker span { display: block; width: 22px; height: 22px; border-radius: 999px; background: #2f6fdd; border: 3px solid #fff; box-shadow: 0 6px 18px rgba(0,0,0,.22); }
+.spaceMapMarker.selected span { width: 32px; height: 32px; background: #111; border: 4px solid #fff; box-shadow: 0 8px 26px rgba(0,0,0,.32); }
+.mapEmptyPanel { min-height: 360px; display: flex; flex-direction: column; justify-content: center; }
+.mapEmptyPanel h2 { font-size: 28px; }
+.mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -3580,6 +3612,14 @@ p { color: #666; }
 
 .leaflet-tooltip { border: 0 !important; border-radius: 12px !important; box-shadow: 0 8px 22px rgba(0,0,0,.12) !important; font-weight: 800; line-height: 1.25; padding: 8px 10px !important; }
 .leaflet-container { font-family: Inter, Arial, sans-serif; }
+
+
+.spaceMapMarker { background: transparent; border: 0; }
+.spaceMapMarker span { display: block; width: 22px; height: 22px; border-radius: 999px; background: #2f6fdd; border: 3px solid #fff; box-shadow: 0 6px 18px rgba(0,0,0,.22); }
+.spaceMapMarker.selected span { width: 32px; height: 32px; background: #111; border: 4px solid #fff; box-shadow: 0 8px 26px rgba(0,0,0,.32); }
+.mapEmptyPanel { min-height: 360px; display: flex; flex-direction: column; justify-content: center; }
+.mapEmptyPanel h2 { font-size: 28px; }
+.mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
 
 @media (max-width: 1000px) {
   .activitySearchRow {
