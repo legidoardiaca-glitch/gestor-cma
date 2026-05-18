@@ -17,6 +17,9 @@ import { createRoot } from "react-dom/client";
 
 const DATA_URL = "/api/data";
 
+const INSCRIPCIONS_CSV_URL =
+  "https://docs.google.com/spreadsheets/d/e/2PACX-1vTbsKEA9-L8F1dlF2WPYWZ89k316qr1jlwELa9RAhvvXLyBobVeUuUmm6mEuw_PmbMN3VJGdJZxpqXh/pub?gid=0&single=true&output=csv";
+
 const CHART_COLORS = [
   "#2f6fdd",
   "#de7a3b",
@@ -181,6 +184,18 @@ async function loadPassisFromIndex() {
   return data.rows;
 }
 
+
+async function loadInscripcionsFromCsv() {
+  const response = await fetch(INSCRIPCIONS_CSV_URL, { cache: "no-store" });
+
+  if (!response.ok) {
+    throw new Error(`Error carregant inscripcions: ${response.status}`);
+  }
+
+  const csvText = await response.text();
+  return parseCsv(csvText);
+}
+
 function normalizeBool(value) {
   const text = String(value ?? "").toLowerCase().trim();
   return value === true || ["true", "sí", "si", "yes", "1"].includes(text);
@@ -326,6 +341,28 @@ function normalizeSpace(row) {
     imatge: String(row.imatge || ""),
     autoria: String(row.autoria || row["autoria imatge"] || ""),
     importar: normalizeBool(row.importar),
+  };
+}
+
+
+function normalizeInscripcio(row) {
+  return {
+    _row: row._row || "",
+    id: String(row.id || ""),
+    idIntern: String(row.id_intern || ""),
+    idWeb: String(row.id_web || ""),
+    titolWeb: String(row.titol_activitat_web || ""),
+    categoria: String(row.categoria || ""),
+    districte: String(row.districte || ""),
+    nom: String(row.nom || ""),
+    cognom: String(row.cognom || ""),
+    entrades: Number(String(row.entrades || "1").replace(",", ".")) || 0,
+    codiPostal: String(row.codi_postal || ""),
+    barri: String(row.barri || ""),
+    ciutat: String(row.ciutat || ""),
+    genere: String(row.genere || row.g_nere || ""),
+    esArquitecte: String(row.for_statistical_purposes_we_would_like_to_know_whether_you_are_an_architect || ""),
+    comEnsConeix: String(row.how_did_you_meet_us || ""),
   };
 }
 
@@ -488,6 +525,7 @@ function Shell({ children, view, setView, rows, status, userName, role, onLogout
             ["propostes", "Propostes"],
             ["calendari", "Calendari"],
             ["espais", "Espais"],
+            ["inscripcions", "Dades inscripcions"],
           ].map(([id, label]) => (
             <button key={id} onClick={() => setView(id)} className={view === id ? "active" : ""}>
               {label}
@@ -1740,6 +1778,202 @@ function Chart({ title, data }) {
 }
 
 
+
+function InscripcionsView({ inscripcions }) {
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
+
+  const filtered = useMemo(() => {
+    return inscripcions.filter((row) => {
+      const text = [
+        row.id,
+        row.idIntern,
+        row.idWeb,
+        row.titolWeb,
+        row.categoria,
+        row.districte,
+        row.nom,
+        row.cognom,
+        row.codiPostal,
+        row.barri,
+        row.ciutat,
+        row.genere,
+        row.esArquitecte,
+        row.comEnsConeix,
+      ].join(" ").toLowerCase();
+
+      const architectText = row.esArquitecte.toLowerCase();
+
+      const matchesQuery = text.includes(query.toLowerCase());
+      const matchesFilter =
+        filter === "all" ||
+        (filter === "arquitectes" && (architectText.includes("yes") || architectText.includes("sí") || architectText.includes("si"))) ||
+        (filter === "bcn" && row.ciutat.toLowerCase().includes("barcelona")) ||
+        (filter === "senseDistricte" && !row.districte);
+
+      return matchesQuery && matchesFilter;
+    });
+  }, [inscripcions, query, filter]);
+
+  const totalEntrades = filtered.reduce((sum, row) => sum + (row.entrades || 0), 0);
+  const architectData = {
+    "Arquitectes": filtered.filter((row) => {
+      const text = row.esArquitecte.toLowerCase();
+      return text.includes("yes") || text.includes("sí") || text.includes("si");
+    }).length,
+    "No arquitectes / sense resposta": filtered.filter((row) => {
+      const text = row.esArquitecte.toLowerCase();
+      return !(text.includes("yes") || text.includes("sí") || text.includes("si"));
+    }).length,
+  };
+
+  return (
+    <>
+      <Top
+        title="Dades inscripcions"
+        subtitle="Visió de les persones inscrites, entrades, activitats, districtes i perfils de públic."
+      />
+
+      <div className="stats dashboardStats">
+        <KpiCard icon="👥" tone="blue" label="Inscripcions" value={filtered.length} />
+        <KpiCard icon="🎟️" tone="green" label="Entrades" value={totalEntrades} />
+        <KpiCard icon="🌐" tone="purple" label="Activitats web" value={uniqueCount(filtered, "idWeb")} />
+        <KpiCard icon="📍" tone="yellow" label="Districtes" value={uniqueCount(filtered, "districte")} />
+        <KpiCard icon="🏙️" tone="peach" label="Barris" value={uniqueCount(filtered, "barri")} />
+      </div>
+
+      <div className="toolbar activitiesToolbar">
+        <div className="activitySearchRow">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar per activitat, nom, barri, ciutat, districte..."
+          />
+          <div className="resultsCounter">
+            <strong>{filtered.length}</strong>
+            <span>{filtered.length === 1 ? "inscripció" : "inscripcions"}</span>
+          </div>
+        </div>
+
+        <div className="activityFiltersRow">
+          <div className="chips">
+            {[
+              { id: "all", label: "Tot" },
+              { id: "arquitectes", label: "Arquitectes" },
+              { id: "bcn", label: "Barcelona" },
+              { id: "senseDistricte", label: "Sense districte" },
+            ].map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setFilter(item.id)}
+                className={filter === item.id ? "selected" : ""}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="dashboardChartsGrid inscriptionsChartsGrid">
+        <InscriptionsActivityBars title="Inscripcions per activitat web" data={countBy(filtered, "idWeb")} />
+        <TypeDonut title="Inscripcions per categoria" data={countBy(filtered, "categoria")} />
+        <DistrictBars title="Inscripcions per districte" data={countBy(filtered, "districte")} />
+        <TypeDonut title="Perfil arquitecte" data={architectData} />
+        <ManagerBars title="Com ens han conegut?" data={countBy(filtered, "comEnsConeix")} />
+        <ManagerBars title="Inscripcions per ciutat" data={countBy(filtered, "ciutat")} />
+      </div>
+
+      <section className="chartCard inscriptionsTableCard">
+        <div className="chartCardHeader">
+          <div className="chartTitle">
+            <span>≡</span>
+            <h2>Registre d’inscripcions</h2>
+          </div>
+          <span className="chartTotal">{filtered.length} registres</span>
+        </div>
+
+        <div className="inscriptionsTableWrap">
+          <table className="inscriptionsTable">
+            <thead>
+              <tr>
+                <th>ID WEB</th>
+                <th>Activitat</th>
+                <th>Nom</th>
+                <th>Entrades</th>
+                <th>Barri</th>
+                <th>Ciutat</th>
+                <th>Districte</th>
+                <th>Arquitecte?</th>
+                <th>Origen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.slice(0, 500).map((row) => (
+                <tr key={`${row.idWeb}-${row.nom}-${row.cognom}-${row._row}`}>
+                  <td>{row.idWeb || "—"}</td>
+                  <td>{row.titolWeb || "—"}</td>
+                  <td>{`${row.nom} ${row.cognom}`.trim() || "—"}</td>
+                  <td>{row.entrades || "—"}</td>
+                  <td>{row.barri || "—"}</td>
+                  <td>{row.ciutat || "—"}</td>
+                  <td>{row.districte || "—"}</td>
+                  <td>{row.esArquitecte || "—"}</td>
+                  <td>{row.comEnsConeix || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {filtered.length > 500 && (
+          <div className="notice">
+            S’estan mostrant les primeres 500 files de {filtered.length}. Utilitza el cercador per afinar resultats.
+          </div>
+        )}
+      </section>
+    </>
+  );
+}
+
+function InscriptionsActivityBars({ title, data }) {
+  const entries = toChartEntries(data, 12).map((item) => ({
+    ...item,
+    label: item.name || "Sense ID WEB",
+  }));
+
+  const total = entries.reduce((sum, item) => sum + item.value, 0);
+
+  return (
+    <ChartCard title={title} icon="▤" totalLabel={`Total: ${total} inscripcions`}>
+      <div className="chartBody">
+        <ResponsiveContainer width="100%" height={330}>
+          <BarChart
+            data={entries}
+            layout="vertical"
+            margin={{ top: 12, right: 34, bottom: 10, left: 90 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+            <XAxis type="number" tickLine={false} axisLine={false} />
+            <YAxis
+              type="category"
+              dataKey="label"
+              width={150}
+              tickLine={false}
+              axisLine={false}
+              interval={0}
+              tick={{ fontSize: 11 }}
+            />
+            <Tooltip />
+            <Bar dataKey="value" fill="#8b74d6" radius={[0, 7, 7, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </ChartCard>
+  );
+}
+
+
 function LoginScreen({ userName, setUserName, role, setRole, onEnter }) {
   return (
     <div className="loginScreen">
@@ -1791,6 +2025,7 @@ function App() {
   const [userName, setUserName] = useState("");
   const [role, setRole] = useState("direccio");
   const [rows, setRows] = useState([]);
+  const [inscripcions, setInscripcions] = useState([]);
   const [apiSpaces, setApiSpaces] = useState([]);
   const [selectedActivityId, setSelectedActivityId] = useState("");
   const [view, setView] = useState("dashboard");
@@ -1799,8 +2034,11 @@ function App() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    loadPassisFromIndex()
-      .then((jsonRows) => {
+    Promise.all([
+      loadPassisFromIndex(),
+      loadInscripcionsFromCsv().catch(() => []),
+    ])
+      .then(([jsonRows, inscripcionsRowsRaw]) => {
         const passis = jsonRows
           .filter((row) => row.id || row.id_intern || row.titol_activitat || row.titol_activitat_cat)
           .map((row) =>
@@ -1838,19 +2076,24 @@ function App() {
             })
           );
 
+        const inscripcionsNormalitzades = inscripcionsRowsRaw
+          .filter((row) => row.id || row.id_intern || row.id_web || row.nom || row.cognom)
+          .map(normalizeInscripcio);
+
         setRows(passis);
+        setInscripcions(inscripcionsNormalitzades);
         setApiSpaces([]);
 
         if (passis[0]) {
           setSelectedActivityId(passis[0]._row || passis[0].idIntern);
         }
 
-        setStatus(`JSON per lots · ${passis.length} registres`);
+        setStatus(`Dades carregades · ${passis.length} activitats · ${inscripcionsNormalitzades.length} inscripcions`);
         setLoading(false);
       })
       .catch((err) => {
         setError(err.message || "Error carregant dades");
-        setStatus("Error JSON");
+        setStatus("Error dades");
         setLoading(false);
       });
   }, []);
@@ -1909,6 +2152,7 @@ function App() {
             setSelectedActivityId={setSelectedActivityId}
           />
         )}
+        {view === "inscripcions" && <InscripcionsView inscripcions={inscripcions} />}
       </Shell>
       <style>{css}</style>
     </>
@@ -2036,6 +2280,15 @@ p { color: #666; }
 .clickableRows button { border: 1px solid #eee; background: #fff; border-radius: 12px; padding: 10px 11px; text-align: left; color: #444; font-weight: 650; }
 .clickableRows button:hover { background: #111; color: #fff; border-color: #111; }
 
+
+.inscriptionsChartsGrid { margin-top: 18px; }
+.inscriptionsTableCard { margin-top: 18px; }
+.inscriptionsTableWrap { width: 100%; overflow: auto; border-radius: 18px; border: 1px solid #e7e7e2; background: #fff; }
+.inscriptionsTable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.inscriptionsTable th { text-align: left; color: #666; font-size: 12px; padding: 12px 10px; border-bottom: 1px solid #ddd; white-space: nowrap; background: #f7f7f5; }
+.inscriptionsTable td { padding: 12px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+.inscriptionsTable tr:hover td { background: #f7f7f5; }
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -2100,6 +2353,15 @@ p { color: #666; }
 .recharts-cartesian-axis-tick-value { fill: #555; }
 .recharts-default-tooltip { border-radius: 12px !important; border-color: #ddd !important; }
 @media (max-width: 1280px) { .donutCardBody { grid-template-columns: 1fr; } .donutWrap { max-width: 320px; width: 100%; margin: 0 auto; } }
+
+.inscriptionsChartsGrid { margin-top: 18px; }
+.inscriptionsTableCard { margin-top: 18px; }
+.inscriptionsTableWrap { width: 100%; overflow: auto; border-radius: 18px; border: 1px solid #e7e7e2; background: #fff; }
+.inscriptionsTable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.inscriptionsTable th { text-align: left; color: #666; font-size: 12px; padding: 12px 10px; border-bottom: 1px solid #ddd; white-space: nowrap; background: #f7f7f5; }
+.inscriptionsTable td { padding: 12px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+.inscriptionsTable tr:hover td { background: #f7f7f5; }
+
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
 
@@ -2290,6 +2552,15 @@ p { color: #666; }
 .activityExportArea {
   background: #fff;
 }
+
+
+.inscriptionsChartsGrid { margin-top: 18px; }
+.inscriptionsTableCard { margin-top: 18px; }
+.inscriptionsTableWrap { width: 100%; overflow: auto; border-radius: 18px; border: 1px solid #e7e7e2; background: #fff; }
+.inscriptionsTable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.inscriptionsTable th { text-align: left; color: #666; font-size: 12px; padding: 12px 10px; border-bottom: 1px solid #ddd; white-space: nowrap; background: #f7f7f5; }
+.inscriptionsTable td { padding: 12px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+.inscriptionsTable tr:hover td { background: #f7f7f5; }
 
 @media (max-width: 1000px) {
   .activitySearchRow {
