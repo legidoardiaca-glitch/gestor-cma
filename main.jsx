@@ -20,6 +20,9 @@ const DATA_URL = "/api/data";
 const INSCRIPCIONS_CSV_URL =
   "https://docs.google.com/spreadsheets/d/e/2PACX-1vTbsKEA9-L8F1dlF2WPYWZ89k316qr1jlwELa9RAhvvXLyBobVeUuUmm6mEuw_PmbMN3VJGdJZxpqXh/pub?gid=0&single=true&output=csv";
 
+const ESPAIS_CSV_URL =
+  "https://docs.google.com/spreadsheets/d/e/2PACX-1vRWPBpxuBECSh1kLS1Vm-gdmOQhWw6_aBUUsjrX3wMZlaL17IsIkhFrSa8ovmbMR-uFL07SeX5ClGOM/pub?gid=1125496422&single=true&output=csv";
+
 const CHART_COLORS = [
   "#2f6fdd",
   "#de7a3b",
@@ -190,6 +193,18 @@ async function loadInscripcionsFromCsv() {
 
   if (!response.ok) {
     throw new Error(`Error carregant inscripcions: ${response.status}`);
+  }
+
+  const csvText = await response.text();
+  return parseCsv(csvText);
+}
+
+
+async function loadEspaisFromCsv() {
+  const response = await fetch(ESPAIS_CSV_URL, { cache: "no-store" });
+
+  if (!response.ok) {
+    throw new Error(`Error carregant espais: ${response.status}`);
   }
 
   const csvText = await response.text();
@@ -422,76 +437,107 @@ function normalizeRow(row) {
 }
 
 function normalizeSpace(row) {
+  const lat = String(row.latitud || "").replace(",", ".").trim();
+  const lon = String(row.longitud || "").replace(",", ".").trim();
+
   return {
-    id: String(row.id || row.z || row._row || ""),
-    title: String(row.title || row.title_ca || row.name || ""),
+    id: String(row.z || row.id || row._row || ""),
+    title: String(row.title_ca || row.title || row.name || ""),
     title_ca: String(row.title_ca || row.title || row.name || ""),
     title_es: String(row.title_es || ""),
     title_en: String(row.title_en || ""),
     body_ca: String(row.body_ca || row.body || ""),
+    body_es: String(row.body_es || ""),
+    body_en: String(row.body_en || ""),
     adreca: String(row.adreca || ""),
-    barri: String(row.barri || ""),
-    districte: String(row.districte || ""),
-    coordenades: String(row.coordenades || ""),
-    latitud: String(row.latitud || ""),
-    longitud: String(row.longitud || ""),
+    barri_m: String(row.barri_m || ""),
+    districte_m: String(row.districte_m || ""),
+    coordenades_m: String(row.coordenades_m || ""),
+    adrecaSearch: String(row.adreca_search || ""),
+    latitud: lat,
+    longitud: lon,
+    barri: String(row.barri || row.barri_m || ""),
+    districte: String(row.districte || row.districte_m || ""),
     imatge: String(row.imatge || ""),
-    autoria: String(row.autoria || row["autoria imatge"] || ""),
+    autoria: String(row.autoria_imatge || row.autoria || ""),
+    imatgeGaleria: String(row.imatge_galeria || ""),
+    autoriaGaleria: String(row.autoria_imatge_galeria || ""),
     importar: normalizeBool(row.importar),
   };
 }
 
+function normalizeSpaceKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[’']/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
 
-function normalizeInscripcio(row) {
-  return {
-    _row: row._row || "",
-    id: String(row.id || ""),
-    idIntern: String(row.id_intern || ""),
-    idWeb: String(row.id_web || ""),
-    titolWeb: String(row.titol_activitat_web || ""),
-    categoria: String(row.categoria || ""),
-    districteActivitat: String(row.districte || ""),
-    nom: String(row.nom || ""),
-    cognom: String(row.cognom || ""),
-    entrades: parseEntrades(row.entrades),
-    codiPostal: String(row.codi_postal || ""),
-    procedenciaDistricte: String(row.barri || ""),
-    barri: String(row.barri || ""),
-    ciutat: String(row.ciutat || ""),
-    genere: normalizeGender(row.genere || row.g_nere),
-    esArquitecte: String(row.for_statistical_purposes_we_would_like_to_know_whether_you_are_an_architect || ""),
-    comEnsConeix: translateMeetUs(row.how_did_you_meet_us),
-  };
+function findMatchingSpace(name, apiSpaces = []) {
+  const key = normalizeSpaceKey(name);
+
+  if (!key) return null;
+
+  const exact = apiSpaces.find((space) => normalizeSpaceKey(space.title_ca || space.title) === key);
+  if (exact) return exact;
+
+  return apiSpaces.find((space) => {
+    const spaceKey = normalizeSpaceKey(space.title_ca || space.title);
+    return spaceKey && (spaceKey.includes(key) || key.includes(spaceKey));
+  }) || null;
 }
 
 function buildDerivedSpaces(rows, apiSpaces = []) {
   const byName = groupBy(rows.filter((row) => row.espai), (row) => row.espai);
-  const apiByName = new Map(apiSpaces.map((space) => [space.title_ca || space.title, space]));
+  const used = new Set();
 
-  return Object.entries(byName)
-    .map(([name, items]) => {
-      const api = apiByName.get(name) || {};
-      return {
-        id: api.id || name,
-        title: api.title_ca || api.title || name,
-        title_ca: api.title_ca || api.title || name,
-        title_es: api.title_es || "",
-        title_en: api.title_en || "",
-        body_ca: api.body_ca || "",
-        adreca: api.adreca || "",
-        barri: api.barri || "",
-        districte: api.districte || mostCommon(items.map((i) => i.districte)),
-        coordenades: api.coordenades || "",
-        latitud: api.latitud || "",
-        longitud: api.longitud || "",
-        imatge: api.imatge || "",
-        autoria: api.autoria || "",
-        importar: api.importar || false,
-        items,
-        count: items.length,
-      };
-    })
-    .sort((a, b) => b.count - a.count);
+  const activitySpaces = Object.entries(byName).map(([name, items]) => {
+    const api = findMatchingSpace(name, apiSpaces) || {};
+    const apiKey = api.title_ca || api.title || "";
+    if (apiKey) used.add(normalizeSpaceKey(apiKey));
+
+    return {
+      id: api.id || name,
+      title: api.title_ca || api.title || name,
+      title_ca: api.title_ca || api.title || name,
+      title_es: api.title_es || "",
+      title_en: api.title_en || "",
+      body_ca: api.body_ca || "",
+      body_es: api.body_es || "",
+      body_en: api.body_en || "",
+      adreca: api.adreca || "",
+      barri: api.barri || mostCommon(items.map((i) => i.districte)),
+      districte: api.districte || mostCommon(items.map((i) => i.districte)),
+      coordenades: api.coordenades_m || "",
+      latitud: api.latitud || "",
+      longitud: api.longitud || "",
+      imatge: api.imatge || "",
+      imatgeGaleria: api.imatgeGaleria || "",
+      autoria: api.autoria || "",
+      autoriaGaleria: api.autoriaGaleria || "",
+      importar: api.importar || false,
+      items,
+      count: items.length,
+      matched: Boolean(api.title_ca || api.title),
+      sourceName: name,
+    };
+  });
+
+  const onlyApiSpaces = apiSpaces
+    .filter((space) => !used.has(normalizeSpaceKey(space.title_ca || space.title)))
+    .map((space) => ({
+      ...space,
+      title: space.title_ca || space.title || "Sense títol",
+      items: [],
+      count: 0,
+      matched: true,
+      sourceName: space.title_ca || space.title || "",
+    }));
+
+  return [...activitySpaces, ...onlyApiSpaces].sort((a, b) => b.count - a.count || a.title.localeCompare(b.title, "ca"));
 }
 
 function isValidDateString(value) {
@@ -1365,23 +1411,36 @@ function MonthBlock({ month, items, onOpen }) {
 function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
   const [query, setQuery] = useState("");
   const [selectedName, setSelectedName] = useState("");
+  const [filter, setFilter] = useState("all");
 
   const spaces = useMemo(() => {
-    return buildDerivedSpaces(rows, apiSpaces).filter((space) =>
-      [
+    return buildDerivedSpaces(rows, apiSpaces).filter((space) => {
+      const text = [
         space.title,
+        space.title_es,
+        space.title_en,
         space.adreca,
         space.barri,
         space.districte,
         space.coordenades,
       ]
         .join(" ")
-        .toLowerCase()
-        .includes(query.toLowerCase())
-    );
-  }, [rows, apiSpaces, query]);
+        .toLowerCase();
+
+      const matchesQuery = text.includes(query.toLowerCase());
+      const matchesFilter =
+        filter === "all" ||
+        (filter === "ambActivitats" && space.count > 0) ||
+        (filter === "senseActivitats" && space.count === 0) ||
+        (filter === "ambMapa" && space.latitud && space.longitud) ||
+        (filter === "senseVincle" && !space.matched);
+
+      return matchesQuery && matchesFilter;
+    });
+  }, [rows, apiSpaces, query, filter]);
 
   const selected = spaces.find((space) => space.title === selectedName) || spaces[0] || null;
+  const unlinkedCount = buildDerivedSpaces(rows, apiSpaces).filter((space) => !space.matched).length;
 
   function openActivity(row) {
     setSelectedActivityId(row._row || row.idIntern);
@@ -1390,35 +1449,78 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
 
   return (
     <>
-      <Top title="Espais" subtitle="Espais vinculats als passis. La fitxa ja està preparada per incorporar API ESPAIS amb adreces, imatges i coordenades." />
-      <SearchFilters
-        query={query}
-        setQuery={setQuery}
-        activeFilter="all"
-        setActiveFilter={() => {}}
-        placeholder="Buscar espai, barri, districte o adreça..."
-        filters={[{ id: "all", label: "Tots" }]}
+      <Top
+        title="Espais"
+        subtitle="Espais del programa amb coordenades, imatges i activitats vinculades."
       />
 
-      <div className="split">
-        <div className="list">
+      <div className="stats dashboardStats">
+        <KpiCard icon="🏛️" tone="blue" label="Espais" value={spaces.length} />
+        <KpiCard icon="🎟️" tone="green" label="Passis vinculats" value={rows.filter((row) => row.espai).length} />
+        <KpiCard icon="📍" tone="purple" label="Amb coordenades" value={spaces.filter((space) => space.latitud && space.longitud).length} />
+        <KpiCard icon="🖼️" tone="yellow" label="Amb imatge" value={spaces.filter((space) => space.imatge).length} />
+        <KpiCard icon="⚠️" tone="peach" label="Sense vincle exacte" value={unlinkedCount} />
+      </div>
+
+      <div className="toolbar activitiesToolbar">
+        <div className="activitySearchRow">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar espai, barri, districte o adreça..."
+          />
+          <div className="resultsCounter">
+            <strong>{spaces.length}</strong>
+            <span>{spaces.length === 1 ? "espai" : "espais"}</span>
+          </div>
+        </div>
+
+        <div className="activityFiltersRow">
+          <div className="chips">
+            {[
+              { id: "all", label: "Tots" },
+              { id: "ambActivitats", label: "Amb activitats" },
+              { id: "senseActivitats", label: "Sense activitats" },
+              { id: "ambMapa", label: "Amb mapa" },
+              { id: "senseVincle", label: "Sense vincle exacte" },
+            ].map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setFilter(item.id)}
+                className={filter === item.id ? "selected" : ""}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="spacesLayout">
+        <div className="spacesList">
           {spaces.map((space) => (
             <button
-              key={space.title}
-              className={`activityCard ${selected?.title === space.title ? "selected" : ""}`}
+              key={`${space.title}-${space.id}`}
+              className={`spaceCard ${selected?.title === space.title ? "selected" : ""}`}
               onClick={() => setSelectedName(space.title)}
             >
-              <div className="cardTop">
-                <div>
-                  <div className="badges">
-                    <Badge>{space.districte || "Sense districte"}</Badge>
-                    {space.barri && <Badge>{space.barri}</Badge>}
-                    <Badge>{space.count} passis</Badge>
-                  </div>
-                  <h3>{space.title}</h3>
-                  <p>{space.adreca || "Adreça pendent / no connectada"}</p>
+              <div className="spaceThumb">
+                {space.imatge ? (
+                  <img src={normalizeImageUrl(space.imatge)} alt={space.title} referrerPolicy="no-referrer" />
+                ) : (
+                  <span>Sense imatge</span>
+                )}
+              </div>
+
+              <div>
+                <div className="badges">
+                  <Badge>{space.districte || "Sense districte"}</Badge>
+                  {space.latitud && space.longitud && <Badge tone="success">Mapa</Badge>}
+                  {!space.matched && <Badge tone="warning">Revisar vincle</Badge>}
                 </div>
-                <span>›</span>
+                <h3>{space.title}</h3>
+                <p>{space.adreca || "Adreça pendent"}</p>
+                <small>{space.count} passis vinculats</small>
               </div>
             </button>
           ))}
@@ -1432,16 +1534,49 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
 
 function SpaceDetail({ space, onOpenActivity }) {
   const [tab, setTab] = useState("general");
+  const [imageFallbackIndex, setImageFallbackIndex] = useState(0);
+
+  useEffect(() => {
+    setImageFallbackIndex(0);
+  }, [space?.id, space?.title, space?.imatge]);
 
   if (!space) return <div className="panel">Selecciona un espai.</div>;
 
+  const imageUrls = getImageUrls(space.imatge);
+  const imageUrl = imageUrls[imageFallbackIndex] || "";
+  const galleryUrl = normalizeImageUrl(space.imatgeGaleria);
+  const categories = countBy(space.items || [], "categoria");
+  const calendarItems = [...(space.items || [])]
+    .filter((item) => isValidDateString(item.dataInici))
+    .sort((a, b) => `${a.dataInici} ${a.horaInici}`.localeCompare(`${b.dataInici} ${b.horaInici}`))
+    .slice(0, 12);
+
+  const hasMap = space.latitud && space.longitud;
+  const lat = Number(String(space.latitud).replace(",", "."));
+  const lon = Number(String(space.longitud).replace(",", "."));
+  const mapSrc =
+    hasMap && Number.isFinite(lat) && Number.isFinite(lon)
+      ? `https://www.openstreetmap.org/export/embed.html?bbox=${lon - 0.01}%2C${lat - 0.006}%2C${lon + 0.01}%2C${lat + 0.006}&layer=mapnik&marker=${lat}%2C${lon}`
+      : "";
+
   return (
-    <div className="panel detail">
-      <div className="hero">
-        {space.imatge ? (
-          <div className="heroImage">
-            <span>Imatge de l’espai vinculada</span>
-            <a href={space.imatge} target="_blank" rel="noreferrer">Obrir imatge</a>
+    <div className="panel detail spaceDetailPanel">
+      <div className="hero spaceHero">
+        {imageUrl ? (
+          <div className="heroImageReal">
+            <img
+              src={imageUrl}
+              alt={space.title || "Imatge de l'espai"}
+              referrerPolicy="no-referrer"
+              onError={() => {
+                if (imageFallbackIndex < imageUrls.length - 1) {
+                  setImageFallbackIndex((current) => current + 1);
+                }
+              }}
+            />
+            <a href={space.imatge || imageUrl} target="_blank" rel="noreferrer">
+              Obrir imatge
+            </a>
           </div>
         ) : (
           <span>Sense imatge de l’espai</span>
@@ -1452,17 +1587,19 @@ function SpaceDetail({ space, onOpenActivity }) {
         <Badge>{space.districte || "Sense districte"}</Badge>
         {space.barri && <Badge>{space.barri}</Badge>}
         <Badge>{space.count} passis</Badge>
-        {space.latitud && space.longitud && <Badge tone="success">Coordenades</Badge>}
+        {hasMap && <Badge tone="success">Coordenades</Badge>}
+        {!space.matched && <Badge tone="warning">Nom no vinculat exactament</Badge>}
       </div>
 
       <h2>{space.title}</h2>
-      <p>{space.adreca || "Quan connectem API ESPAIS aquí apareixerà l’adreça completa."}</p>
+      <p>{space.adreca || "Adreça pendent"}</p>
 
       <div className="tabs">
         {[
           ["general", "General"],
-          ["ubicacio", "Ubicació"],
+          ["mapa", "Mapa"],
           ["activitats", "Activitats"],
+          ["calendari", "Calendari"],
           ["web", "Web"],
         ].map(([id, label]) => (
           <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
@@ -1480,39 +1617,104 @@ function SpaceDetail({ space, onOpenActivity }) {
             <Info label="Passis vinculats" value={space.count} />
             <Info label="Barri" value={space.barri || "—"} />
             <Info label="Districte" value={space.districte || "—"} />
+            <Info label="Adreça" value={space.adreca || "—"} />
+            <Info label="Coordenades" value={space.coordenades || `${space.latitud || "—"}, ${space.longitud || "—"}`} />
           </div>
+
           <div className="sectionTitle">Descripció</div>
-          <div className="notice">{space.body_ca || "Descripció pendent o encara no connectada des d’API ESPAIS."}</div>
+          <div className="notice spaceDescription">{space.body_ca || "Descripció pendent o no disponible."}</div>
+
+          <div className="sectionTitle">Categories vinculades</div>
+          <div className="compactRankList">
+            {toChartEntries(categories, 8).map((item) => (
+              <div className="compactRankRow" key={item.name}>
+                <div className="compactRankTop">
+                  <span>{item.name}</span>
+                  <b>{item.value}</b>
+                </div>
+                <div className="compactRankTrack">
+                  <i style={{ width: `${(item.value / Math.max(...toChartEntries(categories, 8).map((entry) => entry.value), 1)) * 100}%`, background: item.color }} />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {tab === "ubicacio" && (
+      {tab === "mapa" && (
         <div className="tabBody">
           <div className="infoGrid">
-            <Info label="Adreça" value={space.adreca || "—"} />
-            <Info label="Coordenades" value={space.coordenades || "—"} />
             <Info label="Latitud" value={space.latitud || "—"} />
             <Info label="Longitud" value={space.longitud || "—"} />
+            <Info label="Adreça search" value={space.adrecaSearch || "—"} />
+            <Info label="Districte" value={space.districte || "—"} />
           </div>
-          <div className="mapPlaceholder">
-            {space.latitud && space.longitud ? (
-              <span>{space.latitud}, {space.longitud}</span>
-            ) : (
-              <span>Mapa pendent: falta connectar latitud i longitud d’API ESPAIS.</span>
-            )}
-          </div>
+
+          {mapSrc ? (
+            <iframe
+              className="osmMap"
+              src={mapSrc}
+              title={`Mapa de ${space.title}`}
+              loading="lazy"
+            />
+          ) : (
+            <div className="mapPlaceholder">
+              <span>Mapa pendent: falta latitud i longitud.</span>
+            </div>
+          )}
+
+          {hasMap && (
+            <a
+              className="externalLink"
+              href={`https://www.openstreetmap.org/?mlat=${space.latitud}&mlon=${space.longitud}#map=16/${space.latitud}/${space.longitud}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Obrir a OpenStreetMap
+            </a>
+          )}
         </div>
       )}
 
       {tab === "activitats" && (
         <div className="tabBody">
+          <div className="spaceActivityHeader">
+            <h3>{space.count} passis vinculats</h3>
+            <p>Relació directa entre l’espai i les activitats del full API PASSIS.</p>
+          </div>
+
           <div className="miniRows clickableRows">
-            {space.items.map((item) => (
+            {(space.items || []).map((item) => (
               <button key={`${item.idIntern}-${item._row}`} onClick={() => onOpenActivity?.(item)}>
-                {item.dataInici || "Sense data"} · {item.idIntern || item.idWeb || "Sense ID"} · {item.titolWeb || item.titol || "Sense títol"}
+                <strong>{item.idIntern || item.idWeb || "Sense ID"}</strong>
+                <span>{item.dataInici || "Sense data"} · {item.horaInici || "—"} · {item.titolWeb || item.titol || "Sense títol"}</span>
               </button>
             ))}
+
+            {space.count === 0 && (
+              <div className="notice">Aquest espai existeix al full d’espais però encara no té activitats vinculades.</div>
+            )}
           </div>
+        </div>
+      )}
+
+      {tab === "calendari" && (
+        <div className="tabBody">
+          {calendarItems.length > 0 ? (
+            <div className="spaceTimeline">
+              {calendarItems.map((item) => (
+                <button key={`${item.idIntern}-${item._row}`} onClick={() => onOpenActivity?.(item)}>
+                  <time>{formatCompactDate(item.dataInici)}</time>
+                  <div>
+                    <strong>{item.horaInici || "—"} · {item.idIntern}</strong>
+                    <span>{item.titolWeb || item.titol || "Sense títol"}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="notice">No hi ha passis amb data vàlida per aquest espai.</div>
+          )}
         </div>
       )}
 
@@ -1521,19 +1723,36 @@ function SpaceDetail({ space, onOpenActivity }) {
           <div className="infoGrid">
             <Info label="Imatge" value={space.imatge ? "Assignada" : "Falta imatge"} />
             <Info label="Autoria" value={space.autoria || "—"} />
+            <Info label="Galeria" value={space.imatgeGaleria ? "Assignada" : "—"} />
+            <Info label="Autoria galeria" value={space.autoriaGaleria || "—"} />
             <Info label="Importar" value={space.importar ? "Sí" : "No / pendent"} />
             <Info label="ID espai" value={space.id || "—"} />
           </div>
-          {space.imatge && (
-            <a className="externalLink" href={space.imatge} target="_blank" rel="noreferrer">
-              Obrir imatge de l’espai
-            </a>
+
+          <div className="spaceWebLinks">
+            {space.imatge && (
+              <a className="externalLink" href={space.imatge} target="_blank" rel="noreferrer">
+                Obrir imatge principal
+              </a>
+            )}
+            {space.imatgeGaleria && (
+              <a className="externalLink" href={space.imatgeGaleria} target="_blank" rel="noreferrer">
+                Obrir imatge de galeria
+              </a>
+            )}
+          </div>
+
+          {galleryUrl && (
+            <div className="spaceGalleryPreview">
+              <img src={galleryUrl} alt={`Galeria ${space.title}`} referrerPolicy="no-referrer" />
+            </div>
           )}
         </div>
       )}
     </div>
   );
 }
+
 
 
 
@@ -2238,8 +2457,9 @@ function App() {
     Promise.all([
       loadPassisFromIndex(),
       loadInscripcionsFromCsv().catch(() => []),
+      loadEspaisFromCsv().catch(() => []),
     ])
-      .then(([jsonRows, inscripcionsRowsRaw]) => {
+      .then(([jsonRows, inscripcionsRowsRaw, espaisRowsRaw]) => {
         const passis = jsonRows
           .filter((row) => row.id || row.id_intern || row.titol_activitat || row.titol_activitat_cat)
           .map((row) =>
@@ -2281,15 +2501,19 @@ function App() {
           .filter((row) => row.id || row.id_intern || row.id_web || row.nom || row.cognom)
           .map(normalizeInscripcio);
 
+        const espaisNormalitzats = espaisRowsRaw
+          .filter((row) => row.title_ca || row.adreca || row.latitud || row.longitud)
+          .map(normalizeSpace);
+
         setRows(passis);
         setInscripcions(inscripcionsNormalitzades);
-        setApiSpaces([]);
+        setApiSpaces(espaisNormalitzats);
 
         if (passis[0]) {
           setSelectedActivityId(passis[0]._row || passis[0].idIntern);
         }
 
-        setStatus(`Dades carregades · ${passis.length} activitats · ${inscripcionsNormalitzades.length} inscripcions`);
+        setStatus(`Dades carregades · ${passis.length} activitats · ${inscripcionsNormalitzades.length} inscripcions · ${espaisNormalitzats.length} espais`);
         setLoading(false);
       })
       .catch((err) => {
@@ -2530,6 +2754,35 @@ p { color: #666; }
 .sameDistrictMiniStats strong { display: block; font-size: 22px; line-height: 1; letter-spacing: -0.04em; }
 .sameDistrictMiniStats span { display: block; color: #666; font-size: 11px; font-weight: 800; margin-top: 5px; line-height: 1.15; }
 
+
+.spacesLayout { display: grid; grid-template-columns: 430px 1fr; gap: 22px; align-items: start; }
+.spacesList { display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 280px); overflow: auto; padding-right: 4px; }
+.spaceCard { display: grid; grid-template-columns: 88px 1fr; gap: 14px; background: #fff; border: 1px solid #ddd; border-radius: 22px; padding: 14px; text-align: left; transition: .15s ease; }
+.spaceCard:hover, .spaceCard.selected { border-color: #111; transform: translateY(-1px); }
+.spaceThumb { width: 88px; height: 88px; border-radius: 16px; background: #f0f0ec; overflow: hidden; display: flex; align-items: center; justify-content: center; color: #777; font-size: 11px; text-align: center; }
+.spaceThumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.spaceCard h3 { font-size: 16px; margin: 0 0 5px; }
+.spaceCard p { margin: 0 0 6px; font-size: 13px; }
+.spaceCard small { color: #666; font-weight: 800; }
+.spaceDetailPanel { max-height: calc(100vh - 72px); overflow: auto; }
+.spaceHero { height: 240px; }
+.spaceDescription { white-space: pre-wrap; line-height: 1.45; }
+.osmMap { width: 100%; height: 360px; border: 0; border-radius: 22px; margin-top: 16px; background: #f1f1ed; }
+.spaceActivityHeader { margin-bottom: 14px; }
+.spaceActivityHeader h3 { margin: 0 0 4px; }
+.spaceActivityHeader p { margin: 0; }
+.clickableRows button strong { display: block; margin-bottom: 4px; }
+.clickableRows button span { display: block; color: inherit; font-weight: 500; line-height: 1.25; }
+.spaceTimeline { display: flex; flex-direction: column; gap: 10px; }
+.spaceTimeline button { display: grid; grid-template-columns: 112px 1fr; gap: 14px; text-align: left; border: 1px solid #eee; background: #fff; border-radius: 16px; padding: 12px; }
+.spaceTimeline button:hover { border-color: #111; background: #f7f7f5; }
+.spaceTimeline time { font-weight: 900; color: #111; }
+.spaceTimeline strong, .spaceTimeline span { display: block; }
+.spaceTimeline span { color: #666; margin-top: 4px; }
+.spaceWebLinks { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0 18px; }
+.spaceGalleryPreview { width: 100%; border-radius: 22px; overflow: hidden; background: #f1f1ed; }
+.spaceGalleryPreview img { width: 100%; max-height: 260px; object-fit: cover; display: block; }
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -2537,6 +2790,10 @@ p { color: #666; }
   .split, .spaceGrid, .dashboardGrid { grid-template-columns: 1fr; }
   .stats { grid-template-columns: repeat(2, 1fr); }
   .panel { position: static; }
+
+  .spacesLayout { grid-template-columns: 1fr; }
+  .spacesList { max-height: none; }
+  .spaceDetailPanel { max-height: none; }
 
   .dashboardVisualGrid { grid-template-columns: 1fr; }
   .pieLayout { grid-template-columns: 1fr; justify-items: center; }
@@ -2642,6 +2899,35 @@ p { color: #666; }
 .sameDistrictMiniStats div { background: #f7f7f5; border: 1px solid #e7e7e2; border-radius: 16px; padding: 10px; }
 .sameDistrictMiniStats strong { display: block; font-size: 22px; line-height: 1; letter-spacing: -0.04em; }
 .sameDistrictMiniStats span { display: block; color: #666; font-size: 11px; font-weight: 800; margin-top: 5px; line-height: 1.15; }
+
+
+.spacesLayout { display: grid; grid-template-columns: 430px 1fr; gap: 22px; align-items: start; }
+.spacesList { display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 280px); overflow: auto; padding-right: 4px; }
+.spaceCard { display: grid; grid-template-columns: 88px 1fr; gap: 14px; background: #fff; border: 1px solid #ddd; border-radius: 22px; padding: 14px; text-align: left; transition: .15s ease; }
+.spaceCard:hover, .spaceCard.selected { border-color: #111; transform: translateY(-1px); }
+.spaceThumb { width: 88px; height: 88px; border-radius: 16px; background: #f0f0ec; overflow: hidden; display: flex; align-items: center; justify-content: center; color: #777; font-size: 11px; text-align: center; }
+.spaceThumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.spaceCard h3 { font-size: 16px; margin: 0 0 5px; }
+.spaceCard p { margin: 0 0 6px; font-size: 13px; }
+.spaceCard small { color: #666; font-weight: 800; }
+.spaceDetailPanel { max-height: calc(100vh - 72px); overflow: auto; }
+.spaceHero { height: 240px; }
+.spaceDescription { white-space: pre-wrap; line-height: 1.45; }
+.osmMap { width: 100%; height: 360px; border: 0; border-radius: 22px; margin-top: 16px; background: #f1f1ed; }
+.spaceActivityHeader { margin-bottom: 14px; }
+.spaceActivityHeader h3 { margin: 0 0 4px; }
+.spaceActivityHeader p { margin: 0; }
+.clickableRows button strong { display: block; margin-bottom: 4px; }
+.clickableRows button span { display: block; color: inherit; font-weight: 500; line-height: 1.25; }
+.spaceTimeline { display: flex; flex-direction: column; gap: 10px; }
+.spaceTimeline button { display: grid; grid-template-columns: 112px 1fr; gap: 14px; text-align: left; border: 1px solid #eee; background: #fff; border-radius: 16px; padding: 12px; }
+.spaceTimeline button:hover { border-color: #111; background: #f7f7f5; }
+.spaceTimeline time { font-weight: 900; color: #111; }
+.spaceTimeline strong, .spaceTimeline span { display: block; }
+.spaceTimeline span { color: #666; margin-top: 4px; }
+.spaceWebLinks { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0 18px; }
+.spaceGalleryPreview { width: 100%; border-radius: 22px; overflow: hidden; background: #f1f1ed; }
+.spaceGalleryPreview img { width: 100%; max-height: 260px; object-fit: cover; display: block; }
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -2882,6 +3168,35 @@ p { color: #666; }
 .sameDistrictMiniStats div { background: #f7f7f5; border: 1px solid #e7e7e2; border-radius: 16px; padding: 10px; }
 .sameDistrictMiniStats strong { display: block; font-size: 22px; line-height: 1; letter-spacing: -0.04em; }
 .sameDistrictMiniStats span { display: block; color: #666; font-size: 11px; font-weight: 800; margin-top: 5px; line-height: 1.15; }
+
+
+.spacesLayout { display: grid; grid-template-columns: 430px 1fr; gap: 22px; align-items: start; }
+.spacesList { display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 280px); overflow: auto; padding-right: 4px; }
+.spaceCard { display: grid; grid-template-columns: 88px 1fr; gap: 14px; background: #fff; border: 1px solid #ddd; border-radius: 22px; padding: 14px; text-align: left; transition: .15s ease; }
+.spaceCard:hover, .spaceCard.selected { border-color: #111; transform: translateY(-1px); }
+.spaceThumb { width: 88px; height: 88px; border-radius: 16px; background: #f0f0ec; overflow: hidden; display: flex; align-items: center; justify-content: center; color: #777; font-size: 11px; text-align: center; }
+.spaceThumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.spaceCard h3 { font-size: 16px; margin: 0 0 5px; }
+.spaceCard p { margin: 0 0 6px; font-size: 13px; }
+.spaceCard small { color: #666; font-weight: 800; }
+.spaceDetailPanel { max-height: calc(100vh - 72px); overflow: auto; }
+.spaceHero { height: 240px; }
+.spaceDescription { white-space: pre-wrap; line-height: 1.45; }
+.osmMap { width: 100%; height: 360px; border: 0; border-radius: 22px; margin-top: 16px; background: #f1f1ed; }
+.spaceActivityHeader { margin-bottom: 14px; }
+.spaceActivityHeader h3 { margin: 0 0 4px; }
+.spaceActivityHeader p { margin: 0; }
+.clickableRows button strong { display: block; margin-bottom: 4px; }
+.clickableRows button span { display: block; color: inherit; font-weight: 500; line-height: 1.25; }
+.spaceTimeline { display: flex; flex-direction: column; gap: 10px; }
+.spaceTimeline button { display: grid; grid-template-columns: 112px 1fr; gap: 14px; text-align: left; border: 1px solid #eee; background: #fff; border-radius: 16px; padding: 12px; }
+.spaceTimeline button:hover { border-color: #111; background: #f7f7f5; }
+.spaceTimeline time { font-weight: 900; color: #111; }
+.spaceTimeline strong, .spaceTimeline span { display: block; }
+.spaceTimeline span { color: #666; margin-top: 4px; }
+.spaceWebLinks { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0 18px; }
+.spaceGalleryPreview { width: 100%; border-radius: 22px; overflow: hidden; background: #f1f1ed; }
+.spaceGalleryPreview img { width: 100%; max-height: 260px; object-fit: cover; display: block; }
 
 @media (max-width: 1000px) {
   .activitySearchRow {
