@@ -311,6 +311,45 @@ function normalizeGender(value) {
   return "○ Sense resposta / altres";
 }
 
+
+function normalizeDistrictForCompare(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/^\d+\s*/, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function sameDistrictData(rows) {
+  let mateix = 0;
+  let diferent = 0;
+  let senseDades = 0;
+
+  rows.forEach((row) => {
+    const origen = normalizeDistrictForCompare(row.procedenciaDistricte);
+    const activitat = normalizeDistrictForCompare(row.districteActivitat);
+
+    if (!origen || !activitat) {
+      senseDades += 1;
+      return;
+    }
+
+    if (origen === activitat || origen.includes(activitat) || activitat.includes(origen)) {
+      mateix += 1;
+    } else {
+      diferent += 1;
+    }
+  });
+
+  return {
+    "Mateix districte": mateix,
+    "Districte diferent": diferent,
+    "Sense dades": senseDades,
+  };
+}
+
 function translateMeetUs(value) {
   const text = String(value ?? "").trim();
   const key = text.toLowerCase();
@@ -1933,6 +1972,35 @@ function DistrictOriginMap({ title, data }) {
   );
 }
 
+
+function SameDistrictDonut({ rows }) {
+  const data = sameDistrictData(rows);
+  const same = data["Mateix districte"] || 0;
+  const different = data["Districte diferent"] || 0;
+  const withData = same + different;
+  const percent = withData ? Math.round((same / withData) * 100) : 0;
+
+  return (
+    <ChartCard
+      title="Mateix districte vs districte diferent"
+      icon="⇄"
+      totalLabel={`${withData} inscripcions amb dades`}
+    >
+      <div className="sameDistrictSummary">
+        <div>
+          <strong>{percent}%</strong>
+          <span>van a activitats del mateix districte</span>
+        </div>
+        <p>
+          Compara el districte de procedència de la persona inscrita amb el districte on es fa l’activitat.
+        </p>
+      </div>
+      <TypeDonut title="" data={data} />
+    </ChartCard>
+  );
+}
+
+
 function InscripcionsView({ inscripcions }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
@@ -2036,7 +2104,8 @@ function InscripcionsView({ inscripcions }) {
         <DistrictBars title="Inscripcions per districte de l’activitat" data={countBy(filtered, "districteActivitat")} />
         <CompactRankList title="Com ens han conegut?" data={countBy(filtered, "comEnsConeix")} icon="↗" totalLabel={`${filtered.length} respostes`} />
         <CompactRankList title="Inscripcions per ciutat" data={countBy(filtered, "ciutat")} icon="⌂" totalLabel={`${filtered.length} inscripcions`} />
-        <ProcedenciaDistrictMap title="Procedència dels inscrits" data={countBy(filtered, "procedenciaDistricte")} />
+        <ManagerBars title="Procedència per districte dels participants" data={countBy(filtered, "procedenciaDistricte")} />
+        <SameDistrictDonut rows={filtered} />
       </div>
     </>
   );
@@ -2378,6 +2447,16 @@ p { color: #666; }
 .donutWrap .recharts-wrapper { overflow: visible; }
 .donutWrap svg { overflow: visible; }
 
+
+.sameDistrictSummary { display: grid; grid-template-columns: 150px 1fr; gap: 18px; align-items: center; margin-bottom: 10px; }
+.sameDistrictSummary strong { display: block; font-size: 44px; line-height: 1; letter-spacing: -0.05em; }
+.sameDistrictSummary span { display: block; margin-top: 5px; color: #555; font-weight: 800; font-size: 13px; line-height: 1.2; }
+.sameDistrictSummary p { margin: 0; color: #666; font-size: 13px; line-height: 1.35; }
+.chartCard .chartCard { border: 0; box-shadow: none; padding: 0; margin: 0; background: transparent; min-height: 0; }
+.chartCard .chartCard .chartCardHeader { display: none; }
+.chartCard .chartCard .detailLink { display: none; }
+.chartCard .chartCard .donutCardBody { margin-top: 0; }
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -2470,6 +2549,16 @@ p { color: #666; }
 .originDistrictCell.od10 { grid-column: 4 / span 2; grid-row: 3; }
 .donutWrap .recharts-wrapper { overflow: visible; }
 .donutWrap svg { overflow: visible; }
+
+
+.sameDistrictSummary { display: grid; grid-template-columns: 150px 1fr; gap: 18px; align-items: center; margin-bottom: 10px; }
+.sameDistrictSummary strong { display: block; font-size: 44px; line-height: 1; letter-spacing: -0.05em; }
+.sameDistrictSummary span { display: block; margin-top: 5px; color: #555; font-weight: 800; font-size: 13px; line-height: 1.2; }
+.sameDistrictSummary p { margin: 0; color: #666; font-size: 13px; line-height: 1.35; }
+.chartCard .chartCard { border: 0; box-shadow: none; padding: 0; margin: 0; background: transparent; min-height: 0; }
+.chartCard .chartCard .chartCardHeader { display: none; }
+.chartCard .chartCard .detailLink { display: none; }
+.chartCard .chartCard .donutCardBody { margin-top: 0; }
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -2690,6 +2779,16 @@ p { color: #666; }
 .originDistrictCell.od10 { grid-column: 4 / span 2; grid-row: 3; }
 .donutWrap .recharts-wrapper { overflow: visible; }
 .donutWrap svg { overflow: visible; }
+
+
+.sameDistrictSummary { display: grid; grid-template-columns: 150px 1fr; gap: 18px; align-items: center; margin-bottom: 10px; }
+.sameDistrictSummary strong { display: block; font-size: 44px; line-height: 1; letter-spacing: -0.05em; }
+.sameDistrictSummary span { display: block; margin-top: 5px; color: #555; font-weight: 800; font-size: 13px; line-height: 1.2; }
+.sameDistrictSummary p { margin: 0; color: #666; font-size: 13px; line-height: 1.35; }
+.chartCard .chartCard { border: 0; box-shadow: none; padding: 0; margin: 0; background: transparent; min-height: 0; }
+.chartCard .chartCard .chartCardHeader { display: none; }
+.chartCard .chartCard .detailLink { display: none; }
+.chartCard .chartCard .donutCardBody { margin-top: 0; }
 
 @media (max-width: 1000px) {
   .activitySearchRow {
