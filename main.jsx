@@ -436,6 +436,29 @@ function normalizeRow(row) {
   };
 }
 
+
+function normalizeInscripcio(row) {
+  return {
+    _row: row._row || "",
+    id: String(row.id || ""),
+    idIntern: String(row.id_intern || ""),
+    idWeb: String(row.id_web || ""),
+    titolWeb: String(row.titol_activitat_web || ""),
+    categoria: String(row.categoria || ""),
+    districteActivitat: String(row.districte || ""),
+    nom: String(row.nom || ""),
+    cognom: String(row.cognom || ""),
+    entrades: parseEntrades(row.entrades),
+    codiPostal: String(row.codi_postal || ""),
+    procedenciaDistricte: String(row.barri || ""),
+    barri: String(row.barri || ""),
+    ciutat: String(row.ciutat || ""),
+    genere: normalizeGender(row.genere || row.g_nere),
+    esArquitecte: String(row.for_statistical_purposes_we_would_like_to_know_whether_you_are_an_architect || ""),
+    comEnsConeix: translateMeetUs(row.how_did_you_meet_us),
+  };
+}
+
 function normalizeSpace(row) {
   const lat = String(row.latitud || "").replace(",", ".").trim();
   const lon = String(row.longitud || "").replace(",", ".").trim();
