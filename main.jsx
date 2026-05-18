@@ -1974,27 +1974,90 @@ function DistrictOriginMap({ title, data }) {
 
 
 function SameDistrictDonut({ rows }) {
-  const data = sameDistrictData(rows);
+  const [selectedDistrict, setSelectedDistrict] = useState("global");
+
+  const districtOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        rows
+          .map((row) => row.procedenciaDistricte)
+          .filter(Boolean)
+          .sort((a, b) => a.localeCompare(b, "ca"))
+      )
+    );
+  }, [rows]);
+
+  const scopedRows = useMemo(() => {
+    if (selectedDistrict === "global") return rows;
+
+    const selected = normalizeDistrictForCompare(selectedDistrict);
+
+    return rows.filter((row) => {
+      const origen = normalizeDistrictForCompare(row.procedenciaDistricte);
+      return origen === selected || origen.includes(selected) || selected.includes(origen);
+    });
+  }, [rows, selectedDistrict]);
+
+  const data = sameDistrictData(scopedRows);
   const same = data["Mateix districte"] || 0;
   const different = data["Districte diferent"] || 0;
+  const noData = data["Sense dades"] || 0;
   const withData = same + different;
   const percent = withData ? Math.round((same / withData) * 100) : 0;
+
+  const title =
+    selectedDistrict === "global"
+      ? "Visió global"
+      : `Procedència: ${selectedDistrict}`;
 
   return (
     <ChartCard
       title="Mateix districte vs districte diferent"
       icon="⇄"
-      totalLabel={`${withData} inscripcions amb dades`}
+      totalLabel={`${scopedRows.length} inscripcions`}
     >
+      <div className="sameDistrictControls">
+        <label>
+          <span>Analitzar procedència</span>
+          <select value={selectedDistrict} onChange={(e) => setSelectedDistrict(e.target.value)}>
+            <option value="global">Global · tots els districtes</option>
+            {districtOptions.map((district) => (
+              <option key={district} value={district}>
+                {district}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
       <div className="sameDistrictSummary">
         <div>
           <strong>{percent}%</strong>
-          <span>van a activitats del mateix districte</span>
+          <span>{title}</span>
         </div>
         <p>
-          Compara el districte de procedència de la persona inscrita amb el districte on es fa l’activitat.
+          {selectedDistrict === "global"
+            ? "Compara el districte de procedència de totes les persones inscrites amb el districte on es fa cada activitat."
+            : `De les ${scopedRows.length} inscripcions procedents de ${selectedDistrict}, ${same} van a activitats del mateix districte i ${different} a altres districtes.`}
+          {noData > 0 ? ` Hi ha ${noData} registres sense dades completes.` : ""}
         </p>
       </div>
+
+      <div className="sameDistrictMiniStats">
+        <div>
+          <strong>{same}</strong>
+          <span>mateix districte</span>
+        </div>
+        <div>
+          <strong>{different}</strong>
+          <span>districte diferent</span>
+        </div>
+        <div>
+          <strong>{noData}</strong>
+          <span>sense dades</span>
+        </div>
+      </div>
+
       <TypeDonut title="" data={data} />
     </ChartCard>
   );
@@ -2457,6 +2520,16 @@ p { color: #666; }
 .chartCard .chartCard .detailLink { display: none; }
 .chartCard .chartCard .donutCardBody { margin-top: 0; }
 
+
+.sameDistrictControls { margin-bottom: 14px; }
+.sameDistrictControls label { display: grid; gap: 6px; }
+.sameDistrictControls span { color: #666; font-size: 12px; font-weight: 800; }
+.sameDistrictControls select { width: 100%; border: 1px solid #ddd; background: #f7f7f5; border-radius: 14px; padding: 11px 12px; font-weight: 800; color: #111; }
+.sameDistrictMiniStats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0 14px; }
+.sameDistrictMiniStats div { background: #f7f7f5; border: 1px solid #e7e7e2; border-radius: 16px; padding: 10px; }
+.sameDistrictMiniStats strong { display: block; font-size: 22px; line-height: 1; letter-spacing: -0.04em; }
+.sameDistrictMiniStats span { display: block; color: #666; font-size: 11px; font-weight: 800; margin-top: 5px; line-height: 1.15; }
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -2559,6 +2632,16 @@ p { color: #666; }
 .chartCard .chartCard .chartCardHeader { display: none; }
 .chartCard .chartCard .detailLink { display: none; }
 .chartCard .chartCard .donutCardBody { margin-top: 0; }
+
+
+.sameDistrictControls { margin-bottom: 14px; }
+.sameDistrictControls label { display: grid; gap: 6px; }
+.sameDistrictControls span { color: #666; font-size: 12px; font-weight: 800; }
+.sameDistrictControls select { width: 100%; border: 1px solid #ddd; background: #f7f7f5; border-radius: 14px; padding: 11px 12px; font-weight: 800; color: #111; }
+.sameDistrictMiniStats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0 14px; }
+.sameDistrictMiniStats div { background: #f7f7f5; border: 1px solid #e7e7e2; border-radius: 16px; padding: 10px; }
+.sameDistrictMiniStats strong { display: block; font-size: 22px; line-height: 1; letter-spacing: -0.04em; }
+.sameDistrictMiniStats span { display: block; color: #666; font-size: 11px; font-weight: 800; margin-top: 5px; line-height: 1.15; }
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -2789,6 +2872,16 @@ p { color: #666; }
 .chartCard .chartCard .chartCardHeader { display: none; }
 .chartCard .chartCard .detailLink { display: none; }
 .chartCard .chartCard .donutCardBody { margin-top: 0; }
+
+
+.sameDistrictControls { margin-bottom: 14px; }
+.sameDistrictControls label { display: grid; gap: 6px; }
+.sameDistrictControls span { color: #666; font-size: 12px; font-weight: 800; }
+.sameDistrictControls select { width: 100%; border: 1px solid #ddd; background: #f7f7f5; border-radius: 14px; padding: 11px 12px; font-weight: 800; color: #111; }
+.sameDistrictMiniStats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0 14px; }
+.sameDistrictMiniStats div { background: #f7f7f5; border: 1px solid #e7e7e2; border-radius: 16px; padding: 10px; }
+.sameDistrictMiniStats strong { display: block; font-size: 22px; line-height: 1; letter-spacing: -0.04em; }
+.sameDistrictMiniStats span { display: block; color: #666; font-size: 11px; font-weight: 800; margin-top: 5px; line-height: 1.15; }
 
 @media (max-width: 1000px) {
   .activitySearchRow {
