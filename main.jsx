@@ -3152,6 +3152,15 @@ p { color: #666; }
 .mapEmptyPanel h2 { font-size: 28px; }
 .mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
 
+
+.spacesMapPanel .spaceCard,
+.spacesMapPanel .spacesList {
+  display: none !important;
+}
+.spacesMapPanel {
+  overflow: hidden;
+}
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -3326,6 +3335,15 @@ p { color: #666; }
 .mapEmptyPanel { min-height: 360px; display: flex; flex-direction: column; justify-content: center; }
 .mapEmptyPanel h2 { font-size: 28px; }
 .mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
+
+
+.spacesMapPanel .spaceCard,
+.spacesMapPanel .spacesList {
+  display: none !important;
+}
+.spacesMapPanel {
+  overflow: hidden;
+}
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -3620,6 +3638,15 @@ p { color: #666; }
 .mapEmptyPanel { min-height: 360px; display: flex; flex-direction: column; justify-content: center; }
 .mapEmptyPanel h2 { font-size: 28px; }
 .mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
+
+
+.spacesMapPanel .spaceCard,
+.spacesMapPanel .spacesList {
+  display: none !important;
+}
+.spacesMapPanel {
+  overflow: hidden;
+}
 
 @media (max-width: 1000px) {
   .activitySearchRow {
