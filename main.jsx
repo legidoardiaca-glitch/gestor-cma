@@ -1431,13 +1431,90 @@ function MonthBlock({ month, items, onOpen }) {
   );
 }
 
+
+function loadExternalCss(href) {
+  return new Promise((resolve) => {
+    if (document.querySelector(`link[href="${href}"]`)) {
+      resolve();
+      return;
+    }
+
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = href;
+    link.onload = resolve;
+    document.head.appendChild(link);
+  });
+}
+
+function loadExternalScript(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) {
+      resolve();
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = reject;
+    document.body.appendChild(script);
+  });
+}
+
+async function loadLeafletAssets() {
+  await loadExternalCss("https://unpkg.com/leaflet@1.9.4/dist/leaflet.css");
+  await loadExternalScript("https://unpkg.com/leaflet@1.9.4/dist/leaflet.js");
+
+  return window.L;
+}
+
+function getMapBaseLayer(baseId) {
+  const bases = {
+    positron: {
+      url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+      attribution: '&copy; OpenStreetMap &copy; CARTO',
+    },
+    voyager: {
+      url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+      attribution: '&copy; OpenStreetMap &copy; CARTO',
+    },
+    osm: {
+      url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      attribution: '&copy; OpenStreetMap',
+    },
+    toner: {
+      url: "https://tiles.stadiamaps.com/tiles/stamen_toner_lite/{z}/{x}/{y}{r}.png",
+      attribution: '&copy; Stadia Maps &copy; Stamen Design &copy; OpenStreetMap',
+    },
+  };
+
+  return bases[baseId] || bases.positron;
+}
+
+function parseCoordinate(value) {
+  const number = Number(String(value || "").replace(",", "."));
+  return Number.isFinite(number) ? number : null;
+}
+
 function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
   const [query, setQuery] = useState("");
   const [selectedName, setSelectedName] = useState("");
   const [filter, setFilter] = useState("all");
+  const [districtFilter, setDistrictFilter] = useState("all");
+
+  const espaisLoaded = apiSpaces.length > 0;
+  const allSpaces = useMemo(() => buildDerivedSpaces(rows, apiSpaces), [rows, apiSpaces]);
+
+  const districtOptions = useMemo(() => {
+    return Array.from(new Set(allSpaces.map((space) => space.districte).filter(Boolean))).sort((a, b) =>
+      a.localeCompare(b, "ca")
+    );
+  }, [allSpaces]);
 
   const spaces = useMemo(() => {
-    return buildDerivedSpaces(rows, apiSpaces).filter((space) => {
+    return allSpaces.filter((space) => {
       const text = [
         space.title,
         space.title_es,
@@ -1456,14 +1533,17 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
         (filter === "ambActivitats" && space.count > 0) ||
         (filter === "senseActivitats" && space.count === 0) ||
         (filter === "ambMapa" && space.latitud && space.longitud) ||
-        (filter === "senseVincle" && !space.matched);
+        (filter === "senseVincle" && espaisLoaded && !space.matched);
 
-      return matchesQuery && matchesFilter;
+      const matchesDistrict = districtFilter === "all" || space.districte === districtFilter;
+
+      return matchesQuery && matchesFilter && matchesDistrict;
     });
-  }, [rows, apiSpaces, query, filter]);
+  }, [allSpaces, query, filter, districtFilter, espaisLoaded]);
 
   const selected = spaces.find((space) => space.title === selectedName) || spaces[0] || null;
-  const unlinkedCount = buildDerivedSpaces(rows, apiSpaces).filter((space) => !space.matched).length;
+  const unlinkedCount = espaisLoaded ? allSpaces.filter((space) => !space.matched).length : 0;
+  const spacesWithMap = spaces.filter((space) => space.latitud && space.longitud);
 
   function openActivity(row) {
     setSelectedActivityId(row._row || row.idIntern);
@@ -1480,7 +1560,7 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
       <div className="stats dashboardStats">
         <KpiCard icon="🏛️" tone="blue" label="Espais" value={spaces.length} />
         <KpiCard icon="🎟️" tone="green" label="Passis vinculats" value={rows.filter((row) => row.espai).length} />
-        <KpiCard icon="📍" tone="purple" label="Amb coordenades" value={spaces.filter((space) => space.latitud && space.longitud).length} />
+        <KpiCard icon="📍" tone="purple" label="Amb coordenades" value={spacesWithMap.length} />
         <KpiCard icon="🖼️" tone="yellow" label="Amb imatge" value={spaces.filter((space) => space.imatge).length} />
         <KpiCard icon="⚠️" tone="peach" label="Sense vincle exacte" value={unlinkedCount} />
       </div>
@@ -1504,7 +1584,7 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
               { id: "all", label: "Tots" },
               { id: "ambActivitats", label: "Amb activitats" },
               { id: "senseActivitats", label: "Sense activitats" },
-              { id: "ambMapa", label: "Amb mapa" },
+              { id: "ambMapa", label: "Amb coordenades" },
               { id: "senseVincle", label: "Sense vincle exacte" },
             ].map((item) => (
               <button
@@ -1515,6 +1595,20 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
                 {item.label}
               </button>
             ))}
+          </div>
+
+          <div className="selectFilters spacesSelectFilters">
+            <label>
+              <span>Districte</span>
+              <select value={districtFilter} onChange={(e) => setDistrictFilter(e.target.value)}>
+                <option value="all">Tots els districtes</option>
+                {districtOptions.map((district) => (
+                  <option key={district} value={district}>
+                    {district}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </div>
       </div>
@@ -1538,8 +1632,8 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
               <div>
                 <div className="badges">
                   <Badge>{space.districte || "Sense districte"}</Badge>
-                  {space.latitud && space.longitud && <Badge tone="success">Mapa</Badge>}
-                  {!space.matched && <Badge tone="warning">Revisar vincle</Badge>}
+                  {space.latitud && space.longitud && <Badge tone="success">Coordenades</Badge>}
+                  {espaisLoaded && !space.matched && <Badge tone="warning">Revisar vincle</Badge>}
                 </div>
                 <h3>{space.title}</h3>
                 <p>{space.adreca || "Adreça pendent"}</p>
@@ -1549,13 +1643,13 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
           ))}
         </div>
 
-        <SpaceDetail space={selected} onOpenActivity={openActivity} />
+        <SpaceDetail space={selected} onOpenActivity={openActivity} espaisLoaded={espaisLoaded} />
       </div>
     </>
   );
 }
 
-function SpaceDetail({ space, onOpenActivity }) {
+function SpaceDetail({ space, onOpenActivity, espaisLoaded = true }) {
   const [tab, setTab] = useState("general");
   const [imageFallbackIndex, setImageFallbackIndex] = useState(0);
 
@@ -1611,7 +1705,7 @@ function SpaceDetail({ space, onOpenActivity }) {
         {space.barri && <Badge>{space.barri}</Badge>}
         <Badge>{space.count} passis</Badge>
         {hasMap && <Badge tone="success">Coordenades</Badge>}
-        {!space.matched && <Badge tone="warning">Nom no vinculat exactament</Badge>}
+        {espaisLoaded && !space.matched && <Badge tone="warning">Nom no vinculat exactament</Badge>}
       </div>
 
       <h2>{space.title}</h2>
@@ -1779,22 +1873,105 @@ function SpaceDetail({ space, onOpenActivity }) {
 
 
 
-function DashboardView({ rows }) {
+function DashboardView({ rows, inscripcions = [] }) {
   const dashboardRef = useRef(null);
   const [exporting, setExporting] = useState(false);
 
-  const categoryData = countBy(rows, "categoria");
-  const districtData = countBy(rows, "districte");
-  const managerData = countBy(rows, "encarregada");
+  const initialRange = getDateRange(rows);
+  const [startDate, setStartDate] = useState(initialRange.start && initialRange.start !== "—" ? initialRange.start : "");
+  const [endDate, setEndDate] = useState(initialRange.end && initialRange.end !== "—" ? initialRange.end : "");
+  const [monthFilter, setMonthFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [districtFilter, setDistrictFilter] = useState("all");
+  const [managerFilter, setManagerFilter] = useState("all");
+
+  const todayLabel = new Date().toLocaleDateString("ca-ES", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  const filterOptions = useMemo(() => {
+    const months = Array.from(
+      new Set(rows.map((row) => getMonthKey(row.dataInici)).filter((value) => value && value !== "Sense mes"))
+    ).sort();
+
+    return {
+      months,
+      categories: Array.from(new Set(rows.map((row) => row.categoria).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ca")),
+      districts: Array.from(new Set(rows.map((row) => row.districte).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ca")),
+      managers: Array.from(new Set(rows.map((row) => row.encarregada).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ca")),
+    };
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    return rows.filter((row) => {
+      const validDate = isValidDateString(row.dataInici);
+      const inDateRange =
+        !validDate ||
+        ((!startDate || row.dataInici >= startDate) && (!endDate || row.dataInici <= endDate));
+
+      const matchesMonth = monthFilter === "all" || getMonthKey(row.dataInici) === monthFilter;
+      const matchesCategory = categoryFilter === "all" || row.categoria === categoryFilter;
+      const matchesDistrict = districtFilter === "all" || row.districte === districtFilter;
+      const matchesManager = managerFilter === "all" || row.encarregada === managerFilter;
+
+      return inDateRange && matchesMonth && matchesCategory && matchesDistrict && matchesManager;
+    });
+  }, [rows, startDate, endDate, monthFilter, categoryFilter, districtFilter, managerFilter]);
+
+  const idWebToActivity = useMemo(() => {
+    const map = new Map();
+    rows.forEach((row) => {
+      if (row.idWeb && !map.has(row.idWeb)) {
+        map.set(row.idWeb, row);
+      }
+    });
+    return map;
+  }, [rows]);
+
+  const filteredIdWeb = useMemo(() => new Set(filteredRows.map((row) => row.idWeb).filter(Boolean)), [filteredRows]);
+
+  const filteredInscripcions = useMemo(() => {
+    return inscripcions.filter((row) => {
+      if (!row.idWeb || !filteredIdWeb.has(row.idWeb)) return false;
+
+      const activity = idWebToActivity.get(row.idWeb);
+      if (!activity) return true;
+
+      const matchesCategory = categoryFilter === "all" || activity.categoria === categoryFilter;
+      const matchesDistrict = districtFilter === "all" || activity.districte === districtFilter;
+      const matchesManager = managerFilter === "all" || activity.encarregada === managerFilter;
+
+      return matchesCategory && matchesDistrict && matchesManager;
+    });
+  }, [inscripcions, filteredIdWeb, idWebToActivity, categoryFilter, districtFilter, managerFilter]);
+
+  const categoryData = countBy(filteredRows, "categoria");
+  const districtData = countBy(filteredRows, "districte");
+  const managerData = countBy(filteredRows, "encarregada");
   const monthData = countBy(
-    rows
+    filteredRows
       .filter((row) => isValidDateString(row.dataInici))
       .map((row) => ({ mes: getMonthKey(row.dataInici) })),
     "mes"
   );
 
-  const dateRange = getDateRange(rows);
-  const dateLabel = `${formatCompactDate(dateRange.start)} – ${formatCompactDate(dateRange.end)}`;
+  const inscriptionsByMonth = getInscriptionsByMonth(filteredInscripcions, idWebToActivity);
+  const districtComparison = getDistrictActivityInscriptionComparison(filteredRows, filteredInscripcions, idWebToActivity);
+  const topActivityInscriptions = getTopActivityInscriptions(filteredInscripcions, idWebToActivity);
+
+  const dateLabel = `${startDate ? formatCompactDate(startDate) : "Inici"} – ${endDate ? formatCompactDate(endDate) : "Final"}`;
+
+  function resetFilters() {
+    setStartDate(initialRange.start && initialRange.start !== "—" ? initialRange.start : "");
+    setEndDate(initialRange.end && initialRange.end !== "—" ? initialRange.end : "");
+    setMonthFilter("all");
+    setCategoryFilter("all");
+    setDistrictFilter("all");
+    setManagerFilter("all");
+  }
 
   async function exportDashboard(type) {
     if (!dashboardRef.current || exporting) return;
@@ -1855,9 +2032,10 @@ function DashboardView({ rows }) {
     <div ref={dashboardRef} className="dashboardExportArea">
       <Top
         title="Dashboard direcció"
-        subtitle="Visió general de la gestió del programa: tipologies, territori, equips i calendari 2026."
+        subtitle="Visió general de la gestió del programa: tipologies, territori, equips, calendari i inscripcions."
       >
         <div className="dashboardTopControls">
+          <div className="todayPill">Avui · {todayLabel}</div>
           <div className="dateRangePill">📅 {dateLabel}</div>
           <div className="exportButtons">
             <button type="button" disabled={exporting} onClick={() => exportDashboard("png")}>
@@ -1873,12 +2051,73 @@ function DashboardView({ rows }) {
         </div>
       </Top>
 
+      <div className="dashboardFilterPanel">
+        <div className="dashboardDateInputs">
+          <label>
+            <span>Data inici</span>
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          </label>
+          <label>
+            <span>Data final</span>
+            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          </label>
+        </div>
+
+        <div className="dashboardSelectFilters">
+          <label>
+            <span>Mes</span>
+            <select value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)}>
+              <option value="all">Tots els mesos</option>
+              {filterOptions.months.map((month) => (
+                <option key={month} value={month}>
+                  {formatMonth(month)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>Categoria</span>
+            <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+              <option value="all">Totes les categories</option>
+              {filterOptions.categories.map((category) => (
+                <option key={category} value={category}>{category}</option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>Districte</span>
+            <select value={districtFilter} onChange={(e) => setDistrictFilter(e.target.value)}>
+              <option value="all">Tots els districtes</option>
+              {filterOptions.districts.map((district) => (
+                <option key={district} value={district}>{district}</option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>Encarregada</span>
+            <select value={managerFilter} onChange={(e) => setManagerFilter(e.target.value)}>
+              <option value="all">Totes</option>
+              {filterOptions.managers.map((manager) => (
+                <option key={manager} value={manager}>{manager}</option>
+              ))}
+            </select>
+          </label>
+
+          <button className="resetDashboardFilters" type="button" onClick={resetFilters}>
+            Reiniciar filtres
+          </button>
+        </div>
+      </div>
+
       <div className="stats dashboardStats">
-        <KpiCard icon="🎟️" tone="blue" label="Passis" value={rows.length} />
-        <KpiCard icon="📄" tone="green" label="Propostes" value={uniqueCount(rows, "id")} />
-        <KpiCard icon="🌐" tone="purple" label="Activitats web" value={uniqueCount(rows, "idWeb")} />
-        <KpiCard icon="🏛️" tone="yellow" label="Espais" value={uniqueCount(rows, "espai")} />
-        <KpiCard icon="📍" tone="peach" label="Districtes" value={uniqueCount(rows, "districte")} />
+        <KpiCard icon="🎟️" tone="blue" label="Passis" value={filteredRows.length} />
+        <KpiCard icon="📄" tone="green" label="Propostes" value={uniqueCount(filteredRows, "id")} />
+        <KpiCard icon="🌐" tone="purple" label="Activitats web" value={uniqueCount(filteredRows, "idWeb")} />
+        <KpiCard icon="🏛️" tone="yellow" label="Espais" value={uniqueCount(filteredRows, "espai")} />
+        <KpiCard icon="👥" tone="peach" label="Inscripcions" value={filteredInscripcions.length} />
       </div>
 
       <div className="dashboardChartsGrid">
@@ -1887,7 +2126,138 @@ function DashboardView({ rows }) {
         <ManagerBars title="Activitats per encarregada" data={managerData} />
         <MonthBarChart title="Activitats per mes · 2026" data={monthData} />
       </div>
+
+      <div className="dashboardChartsGrid dashboardExtraGrid">
+        <MonthActivityInscriptionChart
+          title="Activitats vs inscripcions per mes"
+          activitiesData={monthData}
+          inscriptionsData={inscriptionsByMonth}
+        />
+        <DistrictActivityGap title="Districtes amb més activitat i menys inscripció" data={districtComparison} />
+        <CompactRankList title="Top 10 espais amb més passis" data={countBy(filteredRows, "espai")} icon="🏛️" totalLabel="Top 10 espais" />
+        <CompactRankList title="Top 10 activitats amb més inscripcions" data={topActivityInscriptions} icon="👥" totalLabel="Top 10 activitats" />
+        <CompactRankList title="Top 10 categories amb més pes" data={categoryData} icon="◔" totalLabel="Top 10 categories" />
+      </div>
     </div>
+  );
+}
+
+
+
+function getInscriptionsByMonth(inscripcions, idWebToActivity) {
+  const data = {};
+
+  inscripcions.forEach((inscripcio) => {
+    const activity = idWebToActivity.get(inscripcio.idWeb);
+    const month = activity && isValidDateString(activity.dataInici) ? getMonthKey(activity.dataInici) : "Sense mes";
+    data[month] = (data[month] || 0) + 1;
+  });
+
+  return data;
+}
+
+function getTopActivityInscriptions(inscripcions, idWebToActivity) {
+  const data = {};
+
+  inscripcions.forEach((inscripcio) => {
+    const activity = idWebToActivity.get(inscripcio.idWeb);
+    const label = activity?.titolWeb || activity?.titol || inscripcio.titolWeb || inscripcio.idWeb || "Sense activitat";
+    data[label] = (data[label] || 0) + 1;
+  });
+
+  return data;
+}
+
+function getDistrictActivityInscriptionComparison(rows, inscripcions, idWebToActivity) {
+  const activities = countBy(rows, "districte");
+  const inscriptions = {};
+
+  inscripcions.forEach((inscripcio) => {
+    const activity = idWebToActivity.get(inscripcio.idWeb);
+    const district = activity?.districte || "Sense dades";
+    inscriptions[district] = (inscriptions[district] || 0) + 1;
+  });
+
+  return Object.keys(activities)
+    .map((district) => {
+      const activityCount = activities[district] || 0;
+      const inscriptionCount = inscriptions[district] || 0;
+      return {
+        district,
+        activityCount,
+        inscriptionCount,
+        gap: activityCount - inscriptionCount,
+        ratio: inscriptionCount ? activityCount / inscriptionCount : activityCount,
+      };
+    })
+    .sort((a, b) => b.activityCount - a.activityCount || b.gap - a.gap)
+    .slice(0, 10);
+}
+
+function MonthActivityInscriptionChart({ title, activitiesData, inscriptionsData }) {
+  const months = [
+    ["2026-01", "Gen"],
+    ["2026-02", "Feb"],
+    ["2026-03", "Mar"],
+    ["2026-04", "Abr"],
+    ["2026-05", "Mai"],
+    ["2026-06", "Jun"],
+    ["2026-07", "Jul"],
+    ["2026-08", "Ago"],
+    ["2026-09", "Set"],
+    ["2026-10", "Oct"],
+    ["2026-11", "Nov"],
+    ["2026-12", "Des"],
+  ];
+
+  const entries = months.map(([key, name]) => ({
+    name,
+    activitats: activitiesData[key] || 0,
+    inscripcions: inscriptionsData[key] || 0,
+  }));
+
+  const totalActivities = entries.reduce((sum, item) => sum + item.activitats, 0);
+  const totalInscriptions = entries.reduce((sum, item) => sum + item.inscripcions, 0);
+
+  return (
+    <ChartCard title={title} icon="↔" totalLabel={`${totalActivities} activitats · ${totalInscriptions} inscripcions`}>
+      <div className="chartBody">
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={entries} margin={{ top: 22, right: 16, bottom: 18, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fontSize: 12 }} />
+            <YAxis tickLine={false} axisLine={false} />
+            <Tooltip />
+            <Bar dataKey="activitats" fill="#2f6fdd" radius={[8, 8, 0, 0]} />
+            <Bar dataKey="inscripcions" fill="#4aa79c" radius={[8, 8, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </ChartCard>
+  );
+}
+
+function DistrictActivityGap({ title, data }) {
+  const maxActivity = Math.max(...data.map((item) => item.activityCount), 1);
+  const maxInscription = Math.max(...data.map((item) => item.inscriptionCount), 1);
+
+  return (
+    <ChartCard title={title} icon="⇣" totalLabel="Top districtes">
+      <div className="districtGapList">
+        {data.map((item) => (
+          <div className="districtGapRow" key={item.district}>
+            <div className="districtGapHeader">
+              <strong>{formatDistrictName(item.district)}</strong>
+              <span>{item.activityCount} activitats · {item.inscriptionCount} inscripcions</span>
+            </div>
+            <div className="districtGapBars">
+              <i style={{ width: `${(item.activityCount / maxActivity) * 100}%` }} />
+              <b style={{ width: `${(item.inscriptionCount / maxInscription) * 100}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </ChartCard>
   );
 }
 
@@ -2583,7 +2953,7 @@ function App() {
         onLogout={() => setAuthenticated(false)}
       >
         {error && <div className="notice">⚠ {error}</div>}
-        {view === "dashboard" && <DashboardView rows={rows} />}
+        {view === "dashboard" && <DashboardView rows={rows} inscripcions={inscripcions} />}
         {view === "activitats" && (
           <ActivitiesView
             rows={rows}
@@ -2814,6 +3184,59 @@ p { color: #666; }
 .spaceGalleryPreview { width: 100%; border-radius: 22px; overflow: hidden; background: #f1f1ed; }
 .spaceGalleryPreview img { width: 100%; max-height: 260px; object-fit: cover; display: block; }
 
+
+.spacesSelectFilters { align-items: end; }
+.spacesMapLayout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(420px, .65fr); gap: 22px; align-items: start; }
+.spacesMapPanel { position: sticky; top: 28px; background: #fff; border: 1px solid #ddd; border-radius: 26px; padding: 14px; box-shadow: 0 1px 0 rgba(0,0,0,.02); }
+.spacesMapCanvas { width: 100%; height: calc(100vh - 250px); min-height: 560px; border-radius: 20px; overflow: hidden; background: #f1f1ed; }
+.mapHint { display: flex; gap: 6px; align-items: center; color: #666; font-size: 13px; padding: 12px 4px 2px; }
+.mapHint strong { color: #111; }
+.mapPopup { display: grid; gap: 4px; min-width: 160px; }
+.mapPopup strong { font-size: 14px; }
+.mapPopup span, .mapPopup small { color: #555; }
+.marker-cluster-small, .marker-cluster-medium, .marker-cluster-large { background-color: rgba(47, 111, 221, .18); }
+.marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div { background-color: rgba(47, 111, 221, .88); color: #fff; font-weight: 900; }
+
+
+.leaflet-tooltip { border: 0 !important; border-radius: 12px !important; box-shadow: 0 8px 22px rgba(0,0,0,.12) !important; font-weight: 800; line-height: 1.25; padding: 8px 10px !important; }
+.leaflet-container { font-family: Inter, Arial, sans-serif; }
+
+
+.spaceMapMarker { background: transparent; border: 0; }
+.spaceMapMarker span { display: block; width: 22px; height: 22px; border-radius: 999px; background: #2f6fdd; border: 3px solid #fff; box-shadow: 0 6px 18px rgba(0,0,0,.22); }
+.spaceMapMarker.selected span { width: 32px; height: 32px; background: #111; border: 4px solid #fff; box-shadow: 0 8px 26px rgba(0,0,0,.32); }
+.mapEmptyPanel { min-height: 360px; display: flex; flex-direction: column; justify-content: center; }
+.mapEmptyPanel h2 { font-size: 28px; }
+.mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
+
+
+.spacesMapShell { position: relative; }
+.mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.86); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; }
+.spaceMapMarker { background: transparent; border: 0; }
+.spaceMapMarker span { display: block; width: 22px; height: 22px; border-radius: 999px; background: #2f6fdd; border: 3px solid #fff; box-shadow: 0 6px 18px rgba(0,0,0,.22); }
+.spaceMapMarker.selected span { width: 32px; height: 32px; background: #111; border: 4px solid #fff; box-shadow: 0 8px 26px rgba(0,0,0,.32); }
+.mapEmptyPanel { min-height: 360px; display: flex; flex-direction: column; justify-content: center; }
+.mapEmptyPanel h2 { font-size: 28px; }
+.mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
+
+
+.dashboardFilterPanel { background: #fff; border: 1px solid #ddd; border-radius: 24px; padding: 16px; margin: 0 0 22px; display: grid; gap: 14px; }
+.dashboardDateInputs, .dashboardSelectFilters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.dashboardDateInputs label, .dashboardSelectFilters label { display: grid; gap: 6px; }
+.dashboardDateInputs span, .dashboardSelectFilters span { color: #666; font-size: 12px; font-weight: 800; }
+.dashboardDateInputs input, .dashboardSelectFilters select { border: 1px solid #ddd; background: #f7f7f5; border-radius: 14px; padding: 11px 12px; font-weight: 800; color: #111; min-width: 160px; }
+.resetDashboardFilters { border: 1px solid #111; background: #111; color: #fff; border-radius: 14px; padding: 12px 14px; font-weight: 900; }
+.todayPill { border: 1px solid #ddd; background: #fff; border-radius: 999px; padding: 10px 13px; color: #555; font-weight: 800; font-size: 13px; white-space: nowrap; }
+.dashboardExtraGrid { margin-top: 18px; }
+.districtGapList { display: flex; flex-direction: column; gap: 13px; padding-top: 8px; }
+.districtGapHeader { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: 13px; }
+.districtGapHeader strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.districtGapHeader span { color: #666; font-weight: 800; font-size: 12px; }
+.districtGapBars { display: grid; gap: 5px; }
+.districtGapBars i, .districtGapBars b { display: block; height: 8px; border-radius: 999px; }
+.districtGapBars i { background: #2f6fdd; }
+.districtGapBars b { background: #4aa79c; }
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -2825,6 +3248,10 @@ p { color: #666; }
   .spacesLayout { grid-template-columns: 1fr; }
   .spacesList { max-height: none; }
   .spaceDetailPanel { max-height: none; }
+
+  .spacesMapLayout { grid-template-columns: 1fr; }
+  .spacesMapPanel { position: static; }
+  .spacesMapCanvas { height: 520px; min-height: 420px; }
 
   .dashboardVisualGrid { grid-template-columns: 1fr; }
   .pieLayout { grid-template-columns: 1fr; justify-items: center; }
@@ -2959,6 +3386,59 @@ p { color: #666; }
 .spaceWebLinks { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0 18px; }
 .spaceGalleryPreview { width: 100%; border-radius: 22px; overflow: hidden; background: #f1f1ed; }
 .spaceGalleryPreview img { width: 100%; max-height: 260px; object-fit: cover; display: block; }
+
+
+.spacesSelectFilters { align-items: end; }
+.spacesMapLayout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(420px, .65fr); gap: 22px; align-items: start; }
+.spacesMapPanel { position: sticky; top: 28px; background: #fff; border: 1px solid #ddd; border-radius: 26px; padding: 14px; box-shadow: 0 1px 0 rgba(0,0,0,.02); }
+.spacesMapCanvas { width: 100%; height: calc(100vh - 250px); min-height: 560px; border-radius: 20px; overflow: hidden; background: #f1f1ed; }
+.mapHint { display: flex; gap: 6px; align-items: center; color: #666; font-size: 13px; padding: 12px 4px 2px; }
+.mapHint strong { color: #111; }
+.mapPopup { display: grid; gap: 4px; min-width: 160px; }
+.mapPopup strong { font-size: 14px; }
+.mapPopup span, .mapPopup small { color: #555; }
+.marker-cluster-small, .marker-cluster-medium, .marker-cluster-large { background-color: rgba(47, 111, 221, .18); }
+.marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div { background-color: rgba(47, 111, 221, .88); color: #fff; font-weight: 900; }
+
+
+.leaflet-tooltip { border: 0 !important; border-radius: 12px !important; box-shadow: 0 8px 22px rgba(0,0,0,.12) !important; font-weight: 800; line-height: 1.25; padding: 8px 10px !important; }
+.leaflet-container { font-family: Inter, Arial, sans-serif; }
+
+
+.spaceMapMarker { background: transparent; border: 0; }
+.spaceMapMarker span { display: block; width: 22px; height: 22px; border-radius: 999px; background: #2f6fdd; border: 3px solid #fff; box-shadow: 0 6px 18px rgba(0,0,0,.22); }
+.spaceMapMarker.selected span { width: 32px; height: 32px; background: #111; border: 4px solid #fff; box-shadow: 0 8px 26px rgba(0,0,0,.32); }
+.mapEmptyPanel { min-height: 360px; display: flex; flex-direction: column; justify-content: center; }
+.mapEmptyPanel h2 { font-size: 28px; }
+.mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
+
+
+.spacesMapShell { position: relative; }
+.mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.86); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; }
+.spaceMapMarker { background: transparent; border: 0; }
+.spaceMapMarker span { display: block; width: 22px; height: 22px; border-radius: 999px; background: #2f6fdd; border: 3px solid #fff; box-shadow: 0 6px 18px rgba(0,0,0,.22); }
+.spaceMapMarker.selected span { width: 32px; height: 32px; background: #111; border: 4px solid #fff; box-shadow: 0 8px 26px rgba(0,0,0,.32); }
+.mapEmptyPanel { min-height: 360px; display: flex; flex-direction: column; justify-content: center; }
+.mapEmptyPanel h2 { font-size: 28px; }
+.mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
+
+
+.dashboardFilterPanel { background: #fff; border: 1px solid #ddd; border-radius: 24px; padding: 16px; margin: 0 0 22px; display: grid; gap: 14px; }
+.dashboardDateInputs, .dashboardSelectFilters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.dashboardDateInputs label, .dashboardSelectFilters label { display: grid; gap: 6px; }
+.dashboardDateInputs span, .dashboardSelectFilters span { color: #666; font-size: 12px; font-weight: 800; }
+.dashboardDateInputs input, .dashboardSelectFilters select { border: 1px solid #ddd; background: #f7f7f5; border-radius: 14px; padding: 11px 12px; font-weight: 800; color: #111; min-width: 160px; }
+.resetDashboardFilters { border: 1px solid #111; background: #111; color: #fff; border-radius: 14px; padding: 12px 14px; font-weight: 900; }
+.todayPill { border: 1px solid #ddd; background: #fff; border-radius: 999px; padding: 10px 13px; color: #555; font-weight: 800; font-size: 13px; white-space: nowrap; }
+.dashboardExtraGrid { margin-top: 18px; }
+.districtGapList { display: flex; flex-direction: column; gap: 13px; padding-top: 8px; }
+.districtGapHeader { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: 13px; }
+.districtGapHeader strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.districtGapHeader span { color: #666; font-weight: 800; font-size: 12px; }
+.districtGapBars { display: grid; gap: 5px; }
+.districtGapBars i, .districtGapBars b { display: block; height: 8px; border-radius: 999px; }
+.districtGapBars i { background: #2f6fdd; }
+.districtGapBars b { background: #4aa79c; }
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -3228,6 +3708,59 @@ p { color: #666; }
 .spaceWebLinks { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0 18px; }
 .spaceGalleryPreview { width: 100%; border-radius: 22px; overflow: hidden; background: #f1f1ed; }
 .spaceGalleryPreview img { width: 100%; max-height: 260px; object-fit: cover; display: block; }
+
+
+.spacesSelectFilters { align-items: end; }
+.spacesMapLayout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(420px, .65fr); gap: 22px; align-items: start; }
+.spacesMapPanel { position: sticky; top: 28px; background: #fff; border: 1px solid #ddd; border-radius: 26px; padding: 14px; box-shadow: 0 1px 0 rgba(0,0,0,.02); }
+.spacesMapCanvas { width: 100%; height: calc(100vh - 250px); min-height: 560px; border-radius: 20px; overflow: hidden; background: #f1f1ed; }
+.mapHint { display: flex; gap: 6px; align-items: center; color: #666; font-size: 13px; padding: 12px 4px 2px; }
+.mapHint strong { color: #111; }
+.mapPopup { display: grid; gap: 4px; min-width: 160px; }
+.mapPopup strong { font-size: 14px; }
+.mapPopup span, .mapPopup small { color: #555; }
+.marker-cluster-small, .marker-cluster-medium, .marker-cluster-large { background-color: rgba(47, 111, 221, .18); }
+.marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div { background-color: rgba(47, 111, 221, .88); color: #fff; font-weight: 900; }
+
+
+.leaflet-tooltip { border: 0 !important; border-radius: 12px !important; box-shadow: 0 8px 22px rgba(0,0,0,.12) !important; font-weight: 800; line-height: 1.25; padding: 8px 10px !important; }
+.leaflet-container { font-family: Inter, Arial, sans-serif; }
+
+
+.spaceMapMarker { background: transparent; border: 0; }
+.spaceMapMarker span { display: block; width: 22px; height: 22px; border-radius: 999px; background: #2f6fdd; border: 3px solid #fff; box-shadow: 0 6px 18px rgba(0,0,0,.22); }
+.spaceMapMarker.selected span { width: 32px; height: 32px; background: #111; border: 4px solid #fff; box-shadow: 0 8px 26px rgba(0,0,0,.32); }
+.mapEmptyPanel { min-height: 360px; display: flex; flex-direction: column; justify-content: center; }
+.mapEmptyPanel h2 { font-size: 28px; }
+.mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
+
+
+.spacesMapShell { position: relative; }
+.mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.86); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; }
+.spaceMapMarker { background: transparent; border: 0; }
+.spaceMapMarker span { display: block; width: 22px; height: 22px; border-radius: 999px; background: #2f6fdd; border: 3px solid #fff; box-shadow: 0 6px 18px rgba(0,0,0,.22); }
+.spaceMapMarker.selected span { width: 32px; height: 32px; background: #111; border: 4px solid #fff; box-shadow: 0 8px 26px rgba(0,0,0,.32); }
+.mapEmptyPanel { min-height: 360px; display: flex; flex-direction: column; justify-content: center; }
+.mapEmptyPanel h2 { font-size: 28px; }
+.mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
+
+
+.dashboardFilterPanel { background: #fff; border: 1px solid #ddd; border-radius: 24px; padding: 16px; margin: 0 0 22px; display: grid; gap: 14px; }
+.dashboardDateInputs, .dashboardSelectFilters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.dashboardDateInputs label, .dashboardSelectFilters label { display: grid; gap: 6px; }
+.dashboardDateInputs span, .dashboardSelectFilters span { color: #666; font-size: 12px; font-weight: 800; }
+.dashboardDateInputs input, .dashboardSelectFilters select { border: 1px solid #ddd; background: #f7f7f5; border-radius: 14px; padding: 11px 12px; font-weight: 800; color: #111; min-width: 160px; }
+.resetDashboardFilters { border: 1px solid #111; background: #111; color: #fff; border-radius: 14px; padding: 12px 14px; font-weight: 900; }
+.todayPill { border: 1px solid #ddd; background: #fff; border-radius: 999px; padding: 10px 13px; color: #555; font-weight: 800; font-size: 13px; white-space: nowrap; }
+.dashboardExtraGrid { margin-top: 18px; }
+.districtGapList { display: flex; flex-direction: column; gap: 13px; padding-top: 8px; }
+.districtGapHeader { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: 13px; }
+.districtGapHeader strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.districtGapHeader span { color: #666; font-weight: 800; font-size: 12px; }
+.districtGapBars { display: grid; gap: 5px; }
+.districtGapBars i, .districtGapBars b { display: block; height: 8px; border-radius: 999px; }
+.districtGapBars i { background: #2f6fdd; }
+.districtGapBars b { background: #4aa79c; }
 
 @media (max-width: 1000px) {
   .activitySearchRow {
