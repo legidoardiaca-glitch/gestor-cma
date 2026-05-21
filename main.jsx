@@ -1499,13 +1499,33 @@ function parseCoordinate(value) {
 }
 
 
-function SpacesMap({ spaces, selected, setSelectedName, baseMap = "positron" }) {
-  const mapRef = useRef(null);
-  const mapInstance = useRef(null);
-  const markersLayer = useRef(null);
-  const tileLayer = useRef(null);
-  const selectedLayer = useRef(null);
-  const initialFitDone = useRef(false);
+function lonToTileX(lon, zoom) {
+  return Math.floor(((lon + 180) / 360) * Math.pow(2, zoom));
+}
+
+function latToTileY(lat, zoom) {
+  const latRad = (lat * Math.PI) / 180;
+  return Math.floor(
+    ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) *
+      Math.pow(2, zoom)
+  );
+}
+
+function lonToWorldX(lon, zoom) {
+  return ((lon + 180) / 360) * Math.pow(2, zoom) * 256;
+}
+
+function latToWorldY(lat, zoom) {
+  const latRad = (lat * Math.PI) / 180;
+  return (
+    ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) *
+    Math.pow(2, zoom) *
+    256
+  );
+}
+
+function TileSpacesMap({ spaces, selected, setSelectedName }) {
+  const [zoom, setZoom] = useState(12);
 
   const pointData = useMemo(() => {
     return spaces
@@ -1514,6 +1534,9 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap = "positron" }) 
         const lon = parseCoordinate(space.longitud);
 
         if (lat === null || lon === null) return null;
+
+        // Rang ampli de Barcelona / AMB per evitar punts estranys molt lluny.
+        if (lat < 41.20 || lat > 41.60 || lon < 1.85 || lon > 2.45) return null;
 
         return {
           title: space.title,
@@ -1526,164 +1549,110 @@ function SpacesMap({ spaces, selected, setSelectedName, baseMap = "positron" }) 
       .filter(Boolean);
   }, [spaces]);
 
-  useEffect(() => {
-    let cancelled = false;
+  const viewport = useMemo(() => {
+    const centerLat = selected?.latitud ? parseCoordinate(selected.latitud) : 41.3874;
+    const centerLon = selected?.longitud ? parseCoordinate(selected.longitud) : 2.1686;
 
-    loadLeafletAssets()
-      .then((L) => {
-        if (cancelled || !mapRef.current) return;
-
-        if (!mapInstance.current) {
-          mapInstance.current = L.map(mapRef.current, {
-            center: [41.3874, 2.1686],
-            zoom: 12,
-            zoomControl: true,
-            scrollWheelZoom: true,
-            preferCanvas: true,
-          });
-        }
-
-        const base = getMapBaseLayer(baseMap);
-
-        if (tileLayer.current) {
-          tileLayer.current.remove();
-        }
-
-        tileLayer.current = L.tileLayer(base.url, {
-          attribution: base.attribution,
-          maxZoom: 19,
-          updateWhenIdle: true,
-          keepBuffer: 2,
-        }).addTo(mapInstance.current);
-
-        setTimeout(() => {
-          mapInstance.current?.invalidateSize();
-        }, 250);
-      })
-      .catch((err) => {
-        console.error("No s'ha pogut carregar el mapa", err);
-      });
-
-    return () => {
-      cancelled = true;
+    return {
+      centerLat: centerLat ?? 41.3874,
+      centerLon: centerLon ?? 2.1686,
+      width: 920,
+      height: 600,
     };
-  }, [baseMap]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    loadLeafletAssets()
-      .then((L) => {
-        if (cancelled || !mapInstance.current) return;
-
-        if (markersLayer.current) {
-          markersLayer.current.remove();
-        }
-
-        const canCluster = typeof L.markerClusterGroup === "function";
-        markersLayer.current = canCluster
-          ? L.markerClusterGroup({
-              showCoverageOnHover: false,
-              spiderfyOnMaxZoom: true,
-              chunkedLoading: true,
-              chunkInterval: 50,
-              chunkDelay: 20,
-              maxClusterRadius: 48,
-            })
-          : L.layerGroup();
-
-        const icon = L.divIcon({
-          className: "spaceMapMarker",
-          html: "<span></span>",
-          iconSize: [22, 22],
-          iconAnchor: [11, 11],
-        });
-
-        const markers = [];
-        const bounds = [];
-
-        pointData.forEach((point) => {
-          const marker = L.marker([point.lat, point.lon], { icon });
-
-          marker.bindPopup(`
-            <div class="mapPopup">
-              <strong>${point.title || "Espai"}</strong>
-              <span>${point.districte || ""}</span>
-              <small>${point.count || 0} passis vinculats</small>
-            </div>
-          `);
-
-          marker.on("click", () => {
-            setSelectedName(point.title);
-          });
-
-          markers.push(marker);
-          bounds.push([point.lat, point.lon]);
-        });
-
-        if (canCluster && markersLayer.current.addLayers) {
-          markersLayer.current.addLayers(markers);
-        } else {
-          markers.forEach((marker) => marker.addTo(markersLayer.current));
-        }
-
-        markersLayer.current.addTo(mapInstance.current);
-
-        if (!initialFitDone.current) {
-          if (bounds.length > 1) {
-            mapInstance.current.fitBounds(bounds, { padding: [30, 30] });
-          } else if (bounds.length === 1) {
-            mapInstance.current.setView(bounds[0], 15);
-          }
-
-          initialFitDone.current = true;
-        }
-
-        setTimeout(() => {
-          mapInstance.current?.invalidateSize();
-        }, 250);
-      })
-      .catch((err) => {
-        console.error("No s'han pogut carregar els punts del mapa", err);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [pointData, setSelectedName]);
-
-  useEffect(() => {
-    if (!mapInstance.current || !selected?.latitud || !selected?.longitud || !window.L) return;
-
-    const L = window.L;
-    const lat = parseCoordinate(selected.latitud);
-    const lon = parseCoordinate(selected.longitud);
-
-    if (lat === null || lon === null) return;
-
-    if (selectedLayer.current) {
-      selectedLayer.current.remove();
-    }
-
-    selectedLayer.current = L.circleMarker([lat, lon], {
-      radius: 18,
-      color: "#111",
-      weight: 3,
-      fillColor: "#ffffff",
-      fillOpacity: 0.65,
-    }).addTo(mapInstance.current);
-
-    mapInstance.current.setView([lat, lon], Math.max(mapInstance.current.getZoom(), 15), {
-      animate: true,
-    });
   }, [selected]);
 
+  const mapData = useMemo(() => {
+    const centerX = lonToWorldX(viewport.centerLon, zoom);
+    const centerY = latToWorldY(viewport.centerLat, zoom);
+
+    const leftWorld = centerX - viewport.width / 2;
+    const topWorld = centerY - viewport.height / 2;
+
+    const minTileX = Math.floor(leftWorld / 256) - 1;
+    const maxTileX = Math.floor((leftWorld + viewport.width) / 256) + 1;
+    const minTileY = Math.floor(topWorld / 256) - 1;
+    const maxTileY = Math.floor((topWorld + viewport.height) / 256) + 1;
+
+    const tiles = [];
+    for (let x = minTileX; x <= maxTileX; x++) {
+      for (let y = minTileY; y <= maxTileY; y++) {
+        tiles.push({
+          x,
+          y,
+          left: x * 256 - leftWorld,
+          top: y * 256 - topWorld,
+        });
+      }
+    }
+
+    const points = pointData
+      .map((point) => {
+        const x = lonToWorldX(point.lon, zoom) - leftWorld;
+        const y = latToWorldY(point.lat, zoom) - topWorld;
+
+        return {
+          ...point,
+          x,
+          y,
+          visible: x > -40 && x < viewport.width + 40 && y > -40 && y < viewport.height + 40,
+        };
+      })
+      .filter((point) => point.visible);
+
+    return { tiles, points };
+  }, [pointData, viewport, zoom]);
+
   return (
-    <div className="spacesMapShell">
-      <div ref={mapRef} className="spacesMapCanvas" />
-      {!pointData.length && (
-        <div className="mapNoPoints">No hi ha espais amb coordenades per mostrar amb aquests filtres.</div>
-      )}
+    <div className="tileMapShell">
+      <div className="tileMapControls">
+        <button type="button" onClick={() => setZoom((z) => Math.min(16, z + 1))}>+</button>
+        <button type="button" onClick={() => setZoom((z) => Math.max(10, z - 1))}>−</button>
+        <span>Zoom {zoom}</span>
+      </div>
+
+      <div className="tileMapCanvas">
+        <div className="tileMapInner">
+          {mapData.tiles.map((tile) => (
+            <img
+              key={`${zoom}-${tile.x}-${tile.y}`}
+              src={`https://tile.openstreetmap.org/${zoom}/${tile.x}/${tile.y}.png`}
+              alt=""
+              loading="lazy"
+              className="tileMapTile"
+              style={{ left: `${tile.left}px`, top: `${tile.top}px` }}
+            />
+          ))}
+
+          {mapData.points.map((point) => {
+            const isSelected = selected?.title === point.title;
+            const size = Math.max(22, Math.min(38, 22 + Math.sqrt(point.count || 1) * 3));
+
+            return (
+              <button
+                key={`${point.title}-${point.lat}-${point.lon}`}
+                type="button"
+                className={`tileMapPoint ${isSelected ? "selected" : ""}`}
+                style={{
+                  left: `${point.x}px`,
+                  top: `${point.y}px`,
+                  width: `${size}px`,
+                  height: `${size}px`,
+                  marginLeft: `${-size / 2}px`,
+                  marginTop: `${-size / 2}px`,
+                }}
+                title={`${point.title} · ${point.count} passis`}
+                onClick={() => setSelectedName(point.title)}
+              >
+                <span>{point.count || ""}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {!pointData.length && (
+          <div className="mapNoPoints">No hi ha espais amb coordenades per mostrar amb aquests filtres.</div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1695,7 +1664,6 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
   const [filter, setFilter] = useState("all");
   const [districtFilter, setDistrictFilter] = useState("all");
   const [mode, setMode] = useState("list");
-  const [baseMap, setBaseMap] = useState("positron");
 
   const espaisLoaded = apiSpaces.length > 0;
   const allSpaces = useMemo(() => buildDerivedSpaces(rows, apiSpaces), [rows, apiSpaces]);
@@ -1810,18 +1778,6 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
                 <option value="map">Mapa</option>
               </select>
             </label>
-
-            {mode === "map" && (
-              <label>
-                <span>Base</span>
-                <select value={baseMap} onChange={(e) => setBaseMap(e.target.value)}>
-                  <option value="positron">CartoDB Positron</option>
-                  <option value="voyager">CartoDB Voyager</option>
-                  <option value="toner">Toner Lite</option>
-                  <option value="osm">OpenStreetMap</option>
-                </select>
-              </label>
-            )}
           </div>
         </div>
       </div>
@@ -1862,11 +1818,10 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
       ) : (
         <div className="spacesMapLayout">
           <div className="spacesMapPanel">
-            <SpacesMap
+            <TileSpacesMap
               spaces={spacesWithMap}
               selected={selected}
               setSelectedName={setSelectedName}
-              baseMap={baseMap}
             />
             <div className="mapHint">
               <strong>{spacesWithMap.length}</strong> espais amb coordenades · clic al punt per obrir fitxa
@@ -3475,6 +3430,28 @@ p { color: #666; }
 .districtGapBars i { background: #2f6fdd; }
 .districtGapBars b { background: #4aa79c; }
 
+
+.spacesSelectFilters { align-items: end; }
+.spacesMapLayout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(420px, .65fr); gap: 22px; align-items: start; }
+.spacesMapPanel { position: sticky; top: 28px; background: #fff; border: 1px solid #ddd; border-radius: 26px; padding: 14px; box-shadow: 0 1px 0 rgba(0,0,0,.02); overflow: hidden; }
+.tileMapShell { position: relative; width: 100%; }
+.tileMapCanvas { position: relative; width: 100%; height: calc(100vh - 250px); min-height: 560px; border-radius: 20px; overflow: hidden; background: #e9ece8; }
+.tileMapInner { position: absolute; left: 50%; top: 50%; width: 920px; height: 600px; transform: translate(-50%, -50%); }
+.tileMapTile { position: absolute; width: 256px; height: 256px; user-select: none; pointer-events: none; filter: grayscale(.15) saturate(.72) brightness(1.04); }
+.tileMapControls { position: absolute; z-index: 30; top: 12px; left: 12px; display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,.92); border: 1px solid #ddd; border-radius: 999px; padding: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.08); }
+.tileMapControls button { width: 30px; height: 30px; border-radius: 999px; border: 1px solid #ddd; background: #fff; font-weight: 900; }
+.tileMapControls span { color: #555; font-size: 12px; font-weight: 900; padding: 0 7px 0 2px; }
+.tileMapPoint { position: absolute; z-index: 20; border: 3px solid #fff; border-radius: 999px; background: #2f6fdd; color: #fff; box-shadow: 0 8px 22px rgba(0,0,0,.24); display: grid; place-items: center; padding: 0; font-size: 10px; font-weight: 900; cursor: pointer; transition: transform .12s ease, background .12s ease; }
+.tileMapPoint:hover { transform: scale(1.18); z-index: 40; background: #111; }
+.tileMapPoint.selected { background: #111; transform: scale(1.22); z-index: 50; }
+.tileMapPoint span { line-height: 1; }
+.mapHint { display: flex; gap: 6px; align-items: center; color: #666; font-size: 13px; padding: 12px 4px 2px; }
+.mapHint strong { color: #111; }
+.mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.88); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; z-index: 500; }
+.mapEmptyPanel { min-height: 360px; display: flex; flex-direction: column; justify-content: center; }
+.mapEmptyPanel h2 { font-size: 28px; }
+.mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -3486,6 +3463,10 @@ p { color: #666; }
   .spacesLayout { grid-template-columns: 1fr; }
   .spacesList { max-height: none; }
   .spaceDetailPanel { max-height: none; }
+
+  .spacesMapLayout { grid-template-columns: 1fr; }
+  .spacesMapPanel { position: static; }
+  .tileMapCanvas { height: 520px; min-height: 420px; }
 
   .spacesMapLayout { grid-template-columns: 1fr; }
   .spacesMapPanel { position: static; }
@@ -3677,6 +3658,28 @@ p { color: #666; }
 .districtGapBars i, .districtGapBars b { display: block; height: 8px; border-radius: 999px; }
 .districtGapBars i { background: #2f6fdd; }
 .districtGapBars b { background: #4aa79c; }
+
+
+.spacesSelectFilters { align-items: end; }
+.spacesMapLayout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(420px, .65fr); gap: 22px; align-items: start; }
+.spacesMapPanel { position: sticky; top: 28px; background: #fff; border: 1px solid #ddd; border-radius: 26px; padding: 14px; box-shadow: 0 1px 0 rgba(0,0,0,.02); overflow: hidden; }
+.tileMapShell { position: relative; width: 100%; }
+.tileMapCanvas { position: relative; width: 100%; height: calc(100vh - 250px); min-height: 560px; border-radius: 20px; overflow: hidden; background: #e9ece8; }
+.tileMapInner { position: absolute; left: 50%; top: 50%; width: 920px; height: 600px; transform: translate(-50%, -50%); }
+.tileMapTile { position: absolute; width: 256px; height: 256px; user-select: none; pointer-events: none; filter: grayscale(.15) saturate(.72) brightness(1.04); }
+.tileMapControls { position: absolute; z-index: 30; top: 12px; left: 12px; display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,.92); border: 1px solid #ddd; border-radius: 999px; padding: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.08); }
+.tileMapControls button { width: 30px; height: 30px; border-radius: 999px; border: 1px solid #ddd; background: #fff; font-weight: 900; }
+.tileMapControls span { color: #555; font-size: 12px; font-weight: 900; padding: 0 7px 0 2px; }
+.tileMapPoint { position: absolute; z-index: 20; border: 3px solid #fff; border-radius: 999px; background: #2f6fdd; color: #fff; box-shadow: 0 8px 22px rgba(0,0,0,.24); display: grid; place-items: center; padding: 0; font-size: 10px; font-weight: 900; cursor: pointer; transition: transform .12s ease, background .12s ease; }
+.tileMapPoint:hover { transform: scale(1.18); z-index: 40; background: #111; }
+.tileMapPoint.selected { background: #111; transform: scale(1.22); z-index: 50; }
+.tileMapPoint span { line-height: 1; }
+.mapHint { display: flex; gap: 6px; align-items: center; color: #666; font-size: 13px; padding: 12px 4px 2px; }
+.mapHint strong { color: #111; }
+.mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.88); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; z-index: 500; }
+.mapEmptyPanel { min-height: 360px; display: flex; flex-direction: column; justify-content: center; }
+.mapEmptyPanel h2 { font-size: 28px; }
+.mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -3999,6 +4002,28 @@ p { color: #666; }
 .districtGapBars i, .districtGapBars b { display: block; height: 8px; border-radius: 999px; }
 .districtGapBars i { background: #2f6fdd; }
 .districtGapBars b { background: #4aa79c; }
+
+
+.spacesSelectFilters { align-items: end; }
+.spacesMapLayout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(420px, .65fr); gap: 22px; align-items: start; }
+.spacesMapPanel { position: sticky; top: 28px; background: #fff; border: 1px solid #ddd; border-radius: 26px; padding: 14px; box-shadow: 0 1px 0 rgba(0,0,0,.02); overflow: hidden; }
+.tileMapShell { position: relative; width: 100%; }
+.tileMapCanvas { position: relative; width: 100%; height: calc(100vh - 250px); min-height: 560px; border-radius: 20px; overflow: hidden; background: #e9ece8; }
+.tileMapInner { position: absolute; left: 50%; top: 50%; width: 920px; height: 600px; transform: translate(-50%, -50%); }
+.tileMapTile { position: absolute; width: 256px; height: 256px; user-select: none; pointer-events: none; filter: grayscale(.15) saturate(.72) brightness(1.04); }
+.tileMapControls { position: absolute; z-index: 30; top: 12px; left: 12px; display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,.92); border: 1px solid #ddd; border-radius: 999px; padding: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.08); }
+.tileMapControls button { width: 30px; height: 30px; border-radius: 999px; border: 1px solid #ddd; background: #fff; font-weight: 900; }
+.tileMapControls span { color: #555; font-size: 12px; font-weight: 900; padding: 0 7px 0 2px; }
+.tileMapPoint { position: absolute; z-index: 20; border: 3px solid #fff; border-radius: 999px; background: #2f6fdd; color: #fff; box-shadow: 0 8px 22px rgba(0,0,0,.24); display: grid; place-items: center; padding: 0; font-size: 10px; font-weight: 900; cursor: pointer; transition: transform .12s ease, background .12s ease; }
+.tileMapPoint:hover { transform: scale(1.18); z-index: 40; background: #111; }
+.tileMapPoint.selected { background: #111; transform: scale(1.22); z-index: 50; }
+.tileMapPoint span { line-height: 1; }
+.mapHint { display: flex; gap: 6px; align-items: center; color: #666; font-size: 13px; padding: 12px 4px 2px; }
+.mapHint strong { color: #111; }
+.mapNoPoints { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.88); border-radius: 18px; color: #666; font-weight: 800; text-align: center; padding: 20px; pointer-events: none; z-index: 500; }
+.mapEmptyPanel { min-height: 360px; display: flex; flex-direction: column; justify-content: center; }
+.mapEmptyPanel h2 { font-size: 28px; }
+.mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
 
 @media (max-width: 1000px) {
   .activitySearchRow {
