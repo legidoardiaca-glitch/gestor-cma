@@ -2992,6 +2992,174 @@ function DireccioView({ rows, allRows = rows, dataScope = "published", inscripci
 }
 
 
+
+function parseTimeToMinutes(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{1,2})[:.](\d{2})/);
+
+  if (!match) return null;
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+
+  return hours * 60 + minutes;
+}
+
+function getNowMinutes() {
+  const now = new Date();
+  return now.getHours() * 60 + now.getMinutes();
+}
+
+function BarcelonaLivePanel({ rows, inscripcions = [] }) {
+  const today = toLocalISODate(new Date());
+  const nowMinutes = getNowMinutes();
+  const inscriptionCountByIdWeb = useMemo(() => buildInscriptionCountByIdWeb(inscripcions), [inscripcions]);
+
+  const todayRows = useMemo(() => {
+    return rows
+      .filter((row) => row.dataInici === today)
+      .sort((a, b) => (parseTimeToMinutes(a.horaInici) ?? 9999) - (parseTimeToMinutes(b.horaInici) ?? 9999));
+  }, [rows, today]);
+
+  const liveRows = useMemo(() => {
+    return todayRows.filter((row) => {
+      const start = parseTimeToMinutes(row.horaInici);
+      const end = parseTimeToMinutes(row.horaFinal);
+
+      if (start === null) return false;
+      if (end !== null) return start <= nowMinutes && nowMinutes <= end;
+
+      return start <= nowMinutes && nowMinutes <= start + 120;
+    });
+  }, [todayRows, nowMinutes]);
+
+  const nextRows = useMemo(() => {
+    return rows
+      .filter((row) => isValidDateString(row.dataInici))
+      .filter((row) => {
+        if (row.dataInici > today) return true;
+        if (row.dataInici < today) return false;
+
+        const start = parseTimeToMinutes(row.horaInici);
+        return start === null || start >= nowMinutes;
+      })
+      .sort((a, b) =>
+        `${a.dataInici || "9999-99-99"} ${a.horaInici || "99:99"}`.localeCompare(
+          `${b.dataInici || "9999-99-99"} ${b.horaInici || "99:99"}`
+        )
+      )
+      .slice(0, 5);
+  }, [rows, today, nowMinutes]);
+
+  const mainNext = nextRows[0] || null;
+
+  return (
+    <section className="barcelonaLivePanel">
+      <div className="barcelonaLiveHeader">
+        <div>
+          <p className="eyebrow">Barcelona en directe</p>
+          <h2>{formatDate(today)}</h2>
+          <p>Lectura viva del programa publicat: què passa avui, què està en marxa i què ve a continuació.</p>
+        </div>
+
+        <div className="liveNowBadge">
+          <span>Ara</span>
+          <strong>{new Date().toLocaleTimeString("ca-ES", { hour: "2-digit", minute: "2-digit" })}</strong>
+        </div>
+      </div>
+
+      <div className="liveKpis">
+        <div>
+          <strong>{todayRows.length}</strong>
+          <span>activitats avui</span>
+        </div>
+        <div>
+          <strong>{uniqueCount(todayRows, "espai")}</strong>
+          <span>espais avui</span>
+        </div>
+        <div>
+          <strong>{uniqueCount(todayRows, "districte")}</strong>
+          <span>districtes avui</span>
+        </div>
+        <div>
+          <strong>{liveRows.length}</strong>
+          <span>ara mateix</span>
+        </div>
+      </div>
+
+      <div className="liveContentGrid">
+        <div className="liveBlock">
+          <div className="liveBlockHeader">
+            <h3>Ara mateix</h3>
+            <Badge>{liveRows.length} actives</Badge>
+          </div>
+
+          <div className="liveList">
+            {liveRows.length ? (
+              liveRows.slice(0, 5).map((row) => (
+                <LiveMiniCard key={`${row.idIntern}-${row._row}`} row={row} inscriptions={row.idWeb ? inscriptionCountByIdWeb[row.idWeb] || 0 : 0} />
+              ))
+            ) : (
+              <div className="liveEmpty">No hi ha cap activitat en marxa segons l’hora indicada.</div>
+            )}
+          </div>
+        </div>
+
+        <div className="liveBlock featured">
+          <div className="liveBlockHeader">
+            <h3>Pròxima activitat</h3>
+            {mainNext && <Badge>{formatCompactDate(mainNext.dataInici)}</Badge>}
+          </div>
+
+          {mainNext ? (
+            <div className="nextActivityCard">
+              <time>{mainNext.horaInici || "—"}</time>
+              <h3>{mainNext.titolWeb || mainNext.titol || "Sense títol"}</h3>
+              <p>{mainNext.espai || "Sense espai"} · {mainNext.districte || "Sense districte"}</p>
+              <div className="agendaMeta">
+                <span>🏷 {mainNext.categoria || "Sense categoria"}</span>
+                <span>👤 {mainNext.encarregada || "Sense encarregada"}</span>
+                <span>🎟 {mainNext.idWeb ? inscriptionCountByIdWeb[mainNext.idWeb] || 0 : 0} inscripcions</span>
+              </div>
+            </div>
+          ) : (
+            <div className="liveEmpty">No hi ha pròximes activitats amb data.</div>
+          )}
+        </div>
+
+        <div className="liveBlock">
+          <div className="liveBlockHeader">
+            <h3>Properes</h3>
+            <Badge>{nextRows.length} activitats</Badge>
+          </div>
+
+          <div className="liveList">
+            {nextRows.slice(0, 5).map((row) => (
+              <LiveMiniCard key={`${row.idIntern}-${row._row}`} row={row} inscriptions={row.idWeb ? inscriptionCountByIdWeb[row.idWeb] || 0 : 0} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function LiveMiniCard({ row, inscriptions }) {
+  return (
+    <div className="liveMiniCard">
+      <time>{row.horaInici || "—"}</time>
+      <div>
+        <h4>{row.titolWeb || row.titol || "Sense títol"}</h4>
+        <p>{formatCompactDate(row.dataInici)} · {row.espai || "Sense espai"}</p>
+        <small>{row.idIntern || row.idWeb || "Sense ID"} · {row.categoria || "Sense categoria"} · 🎟 {inscriptions}</small>
+      </div>
+    </div>
+  );
+}
+
+
 function DashboardView({ rows, inscripcions = [] }) {
   const dashboardRef = useRef(null);
   const [exporting, setExporting] = useState(false);
@@ -3230,6 +3398,8 @@ function DashboardView({ rows, inscripcions = [] }) {
           </button>
         </div>
       </div>
+
+      <BarcelonaLivePanel rows={filteredRows} inscripcions={filteredInscripcions} />
 
       <div className="stats dashboardStats">
         <KpiCard icon="🎟️" tone="blue" label="Passis" value={filteredRows.length} />
@@ -4605,6 +4775,37 @@ p { color: #666; }
 .weeklyProgramItem small { color: #777; font-size: 10px; line-height: 1.2; display: block; }
 .weeklyEmpty { background: #f3f3f1; color: #777; border-radius: 14px; padding: 12px; font-size: 12px; font-weight: 800; text-align: center; }
 
+
+.barcelonaLivePanel { background: #fff; border: 1px solid #ddd; border-radius: 28px; padding: 20px; margin-bottom: 22px; }
+.barcelonaLiveHeader { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; margin-bottom: 16px; }
+.barcelonaLiveHeader h2 { margin: 0 0 6px; font-size: 30px; letter-spacing: -0.04em; }
+.barcelonaLiveHeader p { margin: 0; color: #666; }
+.liveNowBadge { background: #111; color: #fff; border-radius: 20px; padding: 14px 18px; min-width: 120px; text-align: right; }
+.liveNowBadge span { display: block; color: rgba(255,255,255,.65); font-size: 11px; font-weight: 900; text-transform: uppercase; }
+.liveNowBadge strong { display: block; font-size: 26px; line-height: 1; letter-spacing: -0.04em; margin-top: 5px; }
+.liveKpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+.liveKpis div { background: #f7f7f5; border: 1px solid #eee; border-radius: 20px; padding: 15px; }
+.liveKpis strong { display: block; font-size: 32px; line-height: 1; letter-spacing: -0.05em; }
+.liveKpis span { display: block; color: #666; font-size: 12px; font-weight: 900; margin-top: 6px; }
+.liveContentGrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, .8fr) minmax(0, 1fr); gap: 14px; }
+.liveBlock { border: 1px solid #eee; background: #fafafa; border-radius: 22px; padding: 15px; min-height: 230px; }
+.liveBlock.featured { background: #111; color: #fff; }
+.liveBlockHeader { display: flex; justify-content: space-between; gap: 10px; align-items: center; margin-bottom: 11px; }
+.liveBlockHeader h3 { margin: 0; font-size: 18px; }
+.liveList { display: flex; flex-direction: column; gap: 9px; }
+.liveMiniCard { display: grid; grid-template-columns: 50px 1fr; gap: 10px; border: 1px solid #eee; background: #fff; border-radius: 16px; padding: 11px; }
+.liveMiniCard time { font-weight: 950; font-size: 14px; letter-spacing: -0.03em; }
+.liveMiniCard h4 { margin: 0 0 4px; font-size: 13px; line-height: 1.2; }
+.liveMiniCard p { margin: 0 0 3px; color: #555; font-size: 12px; }
+.liveMiniCard small { color: #777; font-size: 11px; font-weight: 800; }
+.nextActivityCard { display: grid; gap: 9px; }
+.nextActivityCard time { display: inline-flex; width: fit-content; background: #fff; color: #111; border-radius: 999px; padding: 8px 11px; font-size: 18px; font-weight: 950; letter-spacing: -0.04em; }
+.nextActivityCard h3 { margin: 0; font-size: 24px; line-height: 1.1; color: #fff; }
+.nextActivityCard p { margin: 0; color: rgba(255,255,255,.72); }
+.nextActivityCard .agendaMeta { color: rgba(255,255,255,.75); }
+.liveEmpty { background: #fff; border: 1px dashed #ddd; border-radius: 16px; padding: 18px; color: #666; font-weight: 800; }
+.liveBlock.featured .liveEmpty { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.18); color: rgba(255,255,255,.7); }
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -4638,6 +4839,11 @@ p { color: #666; }
   .weeklyProgramSummary { grid-template-columns: 1fr; }
   .weeklyDaysGrid { grid-template-columns: 1fr; }
   .weeklyDayCard { min-height: auto; }
+
+  .barcelonaLiveHeader { flex-direction: column; }
+  .liveNowBadge { text-align: left; }
+  .liveKpis { grid-template-columns: repeat(2, 1fr); }
+  .liveContentGrid { grid-template-columns: 1fr; }
 
   .spacesMapLayout { grid-template-columns: 1fr; }
   .spacesMapPanel { position: static; }
@@ -4992,6 +5198,37 @@ p { color: #666; }
 .weeklyProgramItem p { font-size: 11px; line-height: 1.2; margin: 0 0 4px; }
 .weeklyProgramItem small { color: #777; font-size: 10px; line-height: 1.2; display: block; }
 .weeklyEmpty { background: #f3f3f1; color: #777; border-radius: 14px; padding: 12px; font-size: 12px; font-weight: 800; text-align: center; }
+
+
+.barcelonaLivePanel { background: #fff; border: 1px solid #ddd; border-radius: 28px; padding: 20px; margin-bottom: 22px; }
+.barcelonaLiveHeader { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; margin-bottom: 16px; }
+.barcelonaLiveHeader h2 { margin: 0 0 6px; font-size: 30px; letter-spacing: -0.04em; }
+.barcelonaLiveHeader p { margin: 0; color: #666; }
+.liveNowBadge { background: #111; color: #fff; border-radius: 20px; padding: 14px 18px; min-width: 120px; text-align: right; }
+.liveNowBadge span { display: block; color: rgba(255,255,255,.65); font-size: 11px; font-weight: 900; text-transform: uppercase; }
+.liveNowBadge strong { display: block; font-size: 26px; line-height: 1; letter-spacing: -0.04em; margin-top: 5px; }
+.liveKpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+.liveKpis div { background: #f7f7f5; border: 1px solid #eee; border-radius: 20px; padding: 15px; }
+.liveKpis strong { display: block; font-size: 32px; line-height: 1; letter-spacing: -0.05em; }
+.liveKpis span { display: block; color: #666; font-size: 12px; font-weight: 900; margin-top: 6px; }
+.liveContentGrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, .8fr) minmax(0, 1fr); gap: 14px; }
+.liveBlock { border: 1px solid #eee; background: #fafafa; border-radius: 22px; padding: 15px; min-height: 230px; }
+.liveBlock.featured { background: #111; color: #fff; }
+.liveBlockHeader { display: flex; justify-content: space-between; gap: 10px; align-items: center; margin-bottom: 11px; }
+.liveBlockHeader h3 { margin: 0; font-size: 18px; }
+.liveList { display: flex; flex-direction: column; gap: 9px; }
+.liveMiniCard { display: grid; grid-template-columns: 50px 1fr; gap: 10px; border: 1px solid #eee; background: #fff; border-radius: 16px; padding: 11px; }
+.liveMiniCard time { font-weight: 950; font-size: 14px; letter-spacing: -0.03em; }
+.liveMiniCard h4 { margin: 0 0 4px; font-size: 13px; line-height: 1.2; }
+.liveMiniCard p { margin: 0 0 3px; color: #555; font-size: 12px; }
+.liveMiniCard small { color: #777; font-size: 11px; font-weight: 800; }
+.nextActivityCard { display: grid; gap: 9px; }
+.nextActivityCard time { display: inline-flex; width: fit-content; background: #fff; color: #111; border-radius: 999px; padding: 8px 11px; font-size: 18px; font-weight: 950; letter-spacing: -0.04em; }
+.nextActivityCard h3 { margin: 0; font-size: 24px; line-height: 1.1; color: #fff; }
+.nextActivityCard p { margin: 0; color: rgba(255,255,255,.72); }
+.nextActivityCard .agendaMeta { color: rgba(255,255,255,.75); }
+.liveEmpty { background: #fff; border: 1px dashed #ddd; border-radius: 16px; padding: 18px; color: #666; font-weight: 800; }
+.liveBlock.featured .liveEmpty { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.18); color: rgba(255,255,255,.7); }
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -5473,6 +5710,37 @@ p { color: #666; }
 .weeklyProgramItem p { font-size: 11px; line-height: 1.2; margin: 0 0 4px; }
 .weeklyProgramItem small { color: #777; font-size: 10px; line-height: 1.2; display: block; }
 .weeklyEmpty { background: #f3f3f1; color: #777; border-radius: 14px; padding: 12px; font-size: 12px; font-weight: 800; text-align: center; }
+
+
+.barcelonaLivePanel { background: #fff; border: 1px solid #ddd; border-radius: 28px; padding: 20px; margin-bottom: 22px; }
+.barcelonaLiveHeader { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; margin-bottom: 16px; }
+.barcelonaLiveHeader h2 { margin: 0 0 6px; font-size: 30px; letter-spacing: -0.04em; }
+.barcelonaLiveHeader p { margin: 0; color: #666; }
+.liveNowBadge { background: #111; color: #fff; border-radius: 20px; padding: 14px 18px; min-width: 120px; text-align: right; }
+.liveNowBadge span { display: block; color: rgba(255,255,255,.65); font-size: 11px; font-weight: 900; text-transform: uppercase; }
+.liveNowBadge strong { display: block; font-size: 26px; line-height: 1; letter-spacing: -0.04em; margin-top: 5px; }
+.liveKpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+.liveKpis div { background: #f7f7f5; border: 1px solid #eee; border-radius: 20px; padding: 15px; }
+.liveKpis strong { display: block; font-size: 32px; line-height: 1; letter-spacing: -0.05em; }
+.liveKpis span { display: block; color: #666; font-size: 12px; font-weight: 900; margin-top: 6px; }
+.liveContentGrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, .8fr) minmax(0, 1fr); gap: 14px; }
+.liveBlock { border: 1px solid #eee; background: #fafafa; border-radius: 22px; padding: 15px; min-height: 230px; }
+.liveBlock.featured { background: #111; color: #fff; }
+.liveBlockHeader { display: flex; justify-content: space-between; gap: 10px; align-items: center; margin-bottom: 11px; }
+.liveBlockHeader h3 { margin: 0; font-size: 18px; }
+.liveList { display: flex; flex-direction: column; gap: 9px; }
+.liveMiniCard { display: grid; grid-template-columns: 50px 1fr; gap: 10px; border: 1px solid #eee; background: #fff; border-radius: 16px; padding: 11px; }
+.liveMiniCard time { font-weight: 950; font-size: 14px; letter-spacing: -0.03em; }
+.liveMiniCard h4 { margin: 0 0 4px; font-size: 13px; line-height: 1.2; }
+.liveMiniCard p { margin: 0 0 3px; color: #555; font-size: 12px; }
+.liveMiniCard small { color: #777; font-size: 11px; font-weight: 800; }
+.nextActivityCard { display: grid; gap: 9px; }
+.nextActivityCard time { display: inline-flex; width: fit-content; background: #fff; color: #111; border-radius: 999px; padding: 8px 11px; font-size: 18px; font-weight: 950; letter-spacing: -0.04em; }
+.nextActivityCard h3 { margin: 0; font-size: 24px; line-height: 1.1; color: #fff; }
+.nextActivityCard p { margin: 0; color: rgba(255,255,255,.72); }
+.nextActivityCard .agendaMeta { color: rgba(255,255,255,.75); }
+.liveEmpty { background: #fff; border: 1px dashed #ddd; border-radius: 16px; padding: 18px; color: #666; font-weight: 800; }
+.liveBlock.featured .liveEmpty { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.18); color: rgba(255,255,255,.7); }
 
 @media (max-width: 1000px) {
   .activitySearchRow {
