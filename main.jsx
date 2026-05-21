@@ -701,7 +701,6 @@ function getVisibleNavItems(role) {
     ["propostes", "Propostes"],
     ["calendari", "Calendari"],
     ["espais", "Espais"],
-    ["assistent", "Assistent cultural"],
     ["inscripcions", "Dades inscripcions"],
   ];
 
@@ -712,14 +711,14 @@ function getVisibleNavItems(role) {
   }
 
   if (normalizedRole === "editor") {
-    return allItems.filter(([id]) => ["activitats", "propostes", "calendari", "espais", "assistent"].includes(id));
+    return allItems.filter(([id]) => ["activitats", "propostes", "calendari", "espais"].includes(id));
   }
 
   if (normalizedRole === "cap_projecte") {
-    return allItems.filter(([id]) => ["activitats", "propostes", "calendari", "espais", "assistent"].includes(id));
+    return allItems.filter(([id]) => ["activitats", "propostes", "calendari", "espais"].includes(id));
   }
 
-  return allItems.filter(([id]) => ["activitats", "calendari", "espais", "assistent"].includes(id));
+  return allItems.filter(([id]) => ["activitats", "calendari", "espais"].includes(id));
 }
 
 function getDefaultViewForRole(role) {
@@ -1086,9 +1085,67 @@ function Info({ label, value }) {
   );
 }
 
+
+function ActivitiesCatalogView({ rows, selected, setSelected, setSelectedActivityId }) {
+  return (
+    <div className="catalogGrid">
+      {rows.map((row) => {
+        const imageUrl = normalizeImageUrl(row.imatge);
+        const isSelected = String(selected?._row || selected?.idIntern) === String(row._row || row.idIntern);
+
+        return (
+          <button
+            key={`${row.idIntern}-${row._row}`}
+            type="button"
+            className={`catalogCard ${isSelected ? "selected" : ""}`}
+            onClick={() => {
+              setSelected(row);
+              setSelectedActivityId(row._row || row.idIntern);
+            }}
+          >
+            <div className="catalogImage">
+              {imageUrl ? (
+                <img src={imageUrl} alt={row.titolWeb || row.titol || "Activitat"} referrerPolicy="no-referrer" />
+              ) : (
+                <span>Sense imatge</span>
+              )}
+            </div>
+
+            <div className="catalogBody">
+              <div className="badges">
+                <Badge>{row.categoria || "Sense categoria"}</Badge>
+                <Badge>{row.districte || "Sense districte"}</Badge>
+              </div>
+
+              <h3>{row.titolWeb || row.titol || "Sense títol"}</h3>
+              <p>{row.entradetaCat || row.espai || "Sense entradeta disponible."}</p>
+
+              <div className="catalogMeta">
+                <span>📅 {formatCompactDate(row.dataInici)} · {row.horaInici || "—"}</span>
+                <span>📍 {row.espai || "Sense espai"}</span>
+              </div>
+
+              <div className="catalogFooter">
+                <span>{row.idIntern || row.idWeb || "Sense ID"}</span>
+                <strong>Obrir fitxa →</strong>
+              </div>
+            </div>
+          </button>
+        );
+      })}
+
+      {!rows.length && (
+        <div className="emptyList">No hi ha activitats amb aquests filtres.</div>
+      )}
+    </div>
+  );
+}
+
+
 function ActivitiesView({ rows, setView, selectedActivityId, setSelectedActivityId }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
+  const [displayMode, setDisplayMode] = useState("gestor");
   const [districtFilter, setDistrictFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [selected, setSelected] = useState(
@@ -1213,38 +1270,64 @@ function ActivitiesView({ rows, setView, selectedActivityId, setSelectedActivity
                 ))}
               </select>
             </label>
+
+            <label>
+              <span>Vista</span>
+              <select value={displayMode} onChange={(e) => setDisplayMode(e.target.value)}>
+                <option value="gestor">Gestor</option>
+                <option value="cataleg">Catàleg</option>
+              </select>
+            </label>
           </div>
         </div>
       </div>
 
-      <div className="split">
-        <div className="list">
-          {filtered.map((row) => (
-            <ActivityCard
-              key={`${row.idIntern}-${row._row}`}
-              row={row}
-              selected={selected?._row === row._row}
-              onClick={() => {
-                setSelected(row);
-                setSelectedActivityId(row._row || row.idIntern);
-              }}
-            />
-          ))}
-
-          {!filtered.length && (
-            <div className="emptyList">
-              No hi ha activitats amb aquests filtres.
-            </div>
-          )}
+      {displayMode === "cataleg" ? (
+        <div className="catalogLayout">
+          <ActivitiesCatalogView
+            rows={filtered}
+            selected={selected}
+            setSelected={setSelected}
+            setSelectedActivityId={setSelectedActivityId}
+          />
+          <Detail
+            row={selected}
+            onSearchRelated={(value) => {
+              if (value) setQuery(String(value));
+            }}
+            onChangeView={setView}
+          />
         </div>
-        <Detail
-          row={selected}
-          onSearchRelated={(value) => {
-            if (value) setQuery(String(value));
-          }}
-          onChangeView={setView}
-        />
-      </div>
+      ) : (
+        <div className="split">
+          <div className="list">
+            {filtered.map((row) => (
+              <ActivityCard
+                key={`${row.idIntern}-${row._row}`}
+                row={row}
+                selected={selected?._row === row._row}
+                onClick={() => {
+                  setSelected(row);
+                  setSelectedActivityId(row._row || row.idIntern);
+                }}
+              />
+            ))}
+
+            {!filtered.length && (
+              <div className="emptyList">
+                No hi ha activitats amb aquests filtres.
+              </div>
+            )}
+          </div>
+          <Detail
+            row={selected}
+            onSearchRelated={(value) => {
+              if (value) setQuery(String(value));
+            }}
+            onChangeView={setView}
+          />
+        </div>
+      )}
     </>
   );
 }
@@ -2341,6 +2424,7 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
   const [query, setQuery] = useState("");
   const [selectedName, setSelectedName] = useState("");
   const [filter, setFilter] = useState("all");
+  const [displayMode, setDisplayMode] = useState("gestor");
   const [districtFilter, setDistrictFilter] = useState("all");
   const [mode, setMode] = useState("list");
 
@@ -4238,375 +4322,6 @@ function DataScopeControl({ dataScope, setDataScope, rows }) {
 }
 
 
-
-function normalizeAssistantText(value) {
-  return String(value || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\w\s-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function getNextWeekendRange() {
-  const today = new Date();
-  today.setHours(12, 0, 0, 0);
-  const day = today.getDay();
-  const saturday = new Date(today);
-  const daysUntilSaturday = (6 - day + 7) % 7 || 7;
-  saturday.setDate(today.getDate() + daysUntilSaturday);
-  const sunday = new Date(saturday);
-  sunday.setDate(saturday.getDate() + 1);
-
-  return {
-    start: toLocalISODate(saturday),
-    end: toLocalISODate(sunday),
-  };
-}
-
-function filterAssistantRows(rows, question) {
-  const q = normalizeAssistantText(question);
-  let result = rows.filter((row) => isValidDateString(row.dataInici));
-
-  const today = toLocalISODate(new Date());
-  const tomorrow = addDaysISO(today, 1);
-
-  if (q.includes("avui")) {
-    result = result.filter((row) => row.dataInici === today);
-  }
-
-  if (q.includes("dema") || q.includes("demà")) {
-    result = result.filter((row) => row.dataInici === tomorrow);
-  }
-
-  if (q.includes("cap de setmana") || q.includes("weekend")) {
-    const weekend = getNextWeekendRange();
-    result = result.filter((row) => isDateBetween(row.dataInici, weekend.start, weekend.end));
-  }
-
-  const monthMap = {
-    gener: "01",
-    febrer: "02",
-    marc: "03",
-    març: "03",
-    abril: "04",
-    maig: "05",
-    juny: "06",
-    juliol: "07",
-    agost: "08",
-    setembre: "09",
-    octubre: "10",
-    novembre: "11",
-    desembre: "12",
-  };
-
-  Object.entries(monthMap).forEach(([name, number]) => {
-    if (q.includes(name)) {
-      result = result.filter((row) => row.dataInici?.slice(5, 7) === number);
-    }
-  });
-
-  const districts = [
-    "ciutat vella",
-    "eixample",
-    "sants",
-    "montjuic",
-    "les corts",
-    "sarria",
-    "sarria sant gervasi",
-    "gracia",
-    "horta",
-    "guinardo",
-    "nou barris",
-    "sant andreu",
-    "sant marti",
-  ];
-
-  districts.forEach((district) => {
-    if (q.includes(district)) {
-      const d = normalizeAssistantText(district);
-      result = result.filter((row) => normalizeAssistantText(row.districte).includes(d));
-    }
-  });
-
-  const categoryTriggers = [
-    ["ruta", "rutes"],
-    ["exposicio", "exposicions"],
-    ["exposicions", "exposicions"],
-    ["taller", "tallers"],
-    ["tallers", "tallers"],
-    ["debat", "debats"],
-    ["conferencia", "conferencies"],
-    ["conferencies", "conferencies"],
-    ["visita", "visites"],
-    ["premi", "premis"],
-    ["educacio", "educacio"],
-  ];
-
-  categoryTriggers.forEach(([trigger, label]) => {
-    if (q.includes(trigger)) {
-      result = result.filter((row) => normalizeAssistantText(row.categoria).includes(label.slice(0, 6)));
-    }
-  });
-
-  if (q.includes("familiar") || q.includes("familia") || q.includes("família")) {
-    result = result.filter((row) => {
-      const text = normalizeAssistantText([
-        row.titol,
-        row.titolWeb,
-        row.categoria,
-        row.entradetaCat,
-      ].join(" "));
-      return text.includes("familiar") || text.includes("infantil") || text.includes("famil");
-    });
-  }
-
-  if (q.includes("jove") || q.includes("juvenil")) {
-    result = result.filter((row) => {
-      const text = normalizeAssistantText([row.titol, row.titolWeb, row.categoria, row.entradetaCat].join(" "));
-      return text.includes("jove") || text.includes("juvenil");
-    });
-  }
-
-  return result.sort((a, b) =>
-    `${a.dataInici || "9999-99-99"} ${a.horaInici || "99:99"}`.localeCompare(
-      `${b.dataInici || "9999-99-99"} ${b.horaInici || "99:99"}`
-    )
-  );
-}
-
-function buildAssistantAnswer(question, rows, inscripcions) {
-  const q = normalizeAssistantText(question);
-  const inscriptionCountByIdWeb = buildInscriptionCountByIdWeb(inscripcions);
-  const filtered = filterAssistantRows(rows, question);
-
-  if (!q) {
-    return {
-      title: "Pregunta’m alguna cosa sobre la programació.",
-      text: "Puc buscar activitats per data, districte, categoria, públic o espai. També puc suggerir itineraris i detectar equilibris del programa.",
-      items: [],
-    };
-  }
-
-  if (q.includes("espais") && (q.includes("mes") || q.includes("més") || q.includes("actius"))) {
-    const data = toChartEntries(countBy(rows, "espai"), 10);
-    return {
-      title: "Espais amb més activitat",
-      text: `Els espais més actius del programa són ${data.slice(0, 3).map((item) => item.name).join(", ")}.`,
-      items: data.map((item) => ({
-        label: item.name,
-        meta: `${item.value} passis`,
-      })),
-    };
-  }
-
-  if (q.includes("districtes") && (q.includes("menys") || q.includes("poc"))) {
-    const data = Object.entries(countBy(rows, "districte"))
-      .filter(([name]) => name && name !== "Sense dades")
-      .sort((a, b) => a[1] - b[1])
-      .slice(0, 8);
-
-    return {
-      title: "Districtes menys representats",
-      text: "Aquests són els districtes amb menys activitat dins el conjunt filtrat.",
-      items: data.map(([name, value]) => ({
-        label: formatDistrictName(name),
-        meta: `${value} passis`,
-      })),
-    };
-  }
-
-  if (q.includes("inscripcions") || q.includes("inscrits") || q.includes("mes inscrites") || q.includes("més inscrites")) {
-    const byActivity = {};
-    rows.forEach((row) => {
-      if (!row.idWeb) return;
-      const count = inscriptionCountByIdWeb[row.idWeb] || 0;
-      if (!count) return;
-      const label = row.titolWeb || row.titol || row.idWeb;
-      byActivity[label] = Math.max(byActivity[label] || 0, count);
-    });
-
-    const data = Object.entries(byActivity).sort((a, b) => b[1] - a[1]).slice(0, 10);
-
-    return {
-      title: "Activitats amb més inscripcions",
-      text: "Aquestes són les activitats amb més inscripcions registrades.",
-      items: data.map(([label, value]) => ({
-        label,
-        meta: `${value} inscripcions`,
-      })),
-    };
-  }
-
-  if (q.includes("recomana") || q.includes("itinerari") || q.includes("ruta cultural")) {
-    const candidates = filtered.length ? filtered : rows.filter((row) => isValidDateString(row.dataInici));
-    const selection = candidates
-      .filter((row) => row.espai && row.dataInici)
-      .sort((a, b) => {
-        const aIns = a.idWeb ? inscriptionCountByIdWeb[a.idWeb] || 0 : 0;
-        const bIns = b.idWeb ? inscriptionCountByIdWeb[b.idWeb] || 0 : 0;
-        return bIns - aIns || `${a.dataInici} ${a.horaInici}`.localeCompare(`${b.dataInici} ${b.horaInici}`);
-      })
-      .slice(0, 5);
-
-    return {
-      title: "Proposta d’itinerari cultural",
-      text: "Et proposo una selecció equilibrada d’activitats amb espai, data i potencial interès segons inscripcions i programació.",
-      items: selection.map((row) => ({
-        label: `${row.horaInici || "—"} · ${row.titolWeb || row.titol || "Sense títol"}`,
-        meta: `${formatCompactDate(row.dataInici)} · ${row.espai || "Sense espai"} · ${row.districte || "Sense districte"}`,
-        row,
-      })),
-    };
-  }
-
-  const title = (() => {
-    if (q.includes("avui")) return "Activitats d’avui";
-    if (q.includes("dema") || q.includes("demà")) return "Activitats de demà";
-    if (q.includes("cap de setmana")) return "Activitats del cap de setmana";
-    if (q.includes("familiar") || q.includes("familia") || q.includes("família")) return "Activitats familiars";
-    if (q.includes("ruta")) return "Rutes del programa";
-    if (q.includes("exposicio") || q.includes("exposicions")) return "Exposicions del programa";
-    if (q.includes("taller")) return "Tallers del programa";
-    return "Resultats de programació";
-  })();
-
-  return {
-    title,
-    text: filtered.length
-      ? `He trobat ${filtered.length} activitats que encaixen amb la consulta. Et mostro les primeres.`
-      : "No he trobat activitats que encaixin exactament amb la consulta. Prova amb una data, districte, categoria o públic més general.",
-    items: filtered.slice(0, 12).map((row) => ({
-      label: `${row.horaInici || "—"} · ${row.titolWeb || row.titol || "Sense títol"}`,
-      meta: `${formatCompactDate(row.dataInici)} · ${row.espai || "Sense espai"} · ${row.districte || "Sense districte"} · ${row.categoria || "Sense categoria"}`,
-      row,
-    })),
-  };
-}
-
-function AssistentCulturalView({ rows, inscripcions = [], setView, setSelectedActivityId }) {
-  const suggestions = [
-    "Què hi ha avui?",
-    "Què passa aquest cap de setmana?",
-    "Recomana'm una ruta cultural",
-    "Quines activitats familiars hi ha?",
-    "Què hi ha a Sant Martí?",
-    "Quins espais tenen més activitat?",
-    "Quines activitats tenen més inscripcions?",
-    "Quins districtes estan poc representats?",
-  ];
-
-  const [question, setQuestion] = useState("Què hi ha avui?");
-  const [history, setHistory] = useState(() => [
-    {
-      role: "assistant",
-      answer: buildAssistantAnswer("Què hi ha avui?", rows, inscripcions),
-    },
-  ]);
-
-  useEffect(() => {
-    setHistory([
-      {
-        role: "assistant",
-        answer: buildAssistantAnswer(question || "Què hi ha avui?", rows, inscripcions),
-      },
-    ]);
-  }, [rows.length, inscripcions.length]);
-
-  function ask(value = question) {
-    const text = String(value || "").trim();
-    if (!text) return;
-
-    const answer = buildAssistantAnswer(text, rows, inscripcions);
-    setQuestion(text);
-    setHistory((current) => [
-      ...current,
-      { role: "user", text },
-      { role: "assistant", answer },
-    ]);
-  }
-
-  function openActivity(row) {
-    if (!row) return;
-    setSelectedActivityId(row._row || row.idIntern);
-    setView("activitats");
-  }
-
-  return (
-    <>
-      <Top
-        title="Assistent cultural"
-        subtitle="Consulta local i gratuïta sobre la programació: dates, districtes, espais, categories i recomanacions."
-      />
-
-      <div className="assistantLayout">
-        <section className="assistantPanel">
-          <div className="assistantHero">
-            <p className="eyebrow">IA local · sense cost</p>
-            <h2>Pregunta a la programació</h2>
-            <p>Encara no és IA generativa real: és un assistent local que llegeix les dades del gestor i respon amb regles intel·ligents.</p>
-          </div>
-
-          <div className="assistantInputBox">
-            <input
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") ask();
-              }}
-              placeholder="Ex: recomana'm activitats familiars a Sant Martí..."
-            />
-            <button type="button" onClick={() => ask()}>
-              Preguntar
-            </button>
-          </div>
-
-          <div className="assistantSuggestions">
-            {suggestions.map((item) => (
-              <button key={item} type="button" onClick={() => ask(item)}>
-                {item}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className="assistantChat">
-          {history.map((message, index) => (
-            message.role === "user" ? (
-              <div className="assistantBubble user" key={index}>
-                {message.text}
-              </div>
-            ) : (
-              <div className="assistantBubble assistant" key={index}>
-                <h3>{message.answer.title}</h3>
-                <p>{message.answer.text}</p>
-
-                {message.answer.items?.length > 0 && (
-                  <div className="assistantResults">
-                    {message.answer.items.map((item, itemIndex) => (
-                      <button
-                        key={`${item.label}-${itemIndex}`}
-                        type="button"
-                        className="assistantResultItem"
-                        onClick={() => item.row && openActivity(item.row)}
-                      >
-                        <strong>{item.label}</strong>
-                        <span>{item.meta}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          ))}
-        </section>
-      </div>
-    </>
-  );
-}
-
-
 function App() {
   const [authenticated, setAuthenticated] = useState(false);
   const [userName, setUserName] = useState("");
@@ -4782,14 +4497,6 @@ function App() {
           <SpacesView
             rows={scopedRows}
             apiSpaces={apiSpaces}
-            setView={setView}
-            setSelectedActivityId={setSelectedActivityId}
-          />
-        )}
-        {view === "assistent" && (
-          <AssistentCulturalView
-            rows={scopedRows}
-            inscripcions={inscripcions}
             setView={setView}
             setSelectedActivityId={setSelectedActivityId}
           />
@@ -5509,28 +5216,18 @@ body {
 }
 
 
-.assistantLayout { display: grid; grid-template-columns: 420px 1fr; gap: 22px; align-items: start; }
-.assistantPanel { position: sticky; top: 28px; background: #fff; border: 1px solid #ddd; border-radius: 28px; padding: 20px; box-shadow: 0 10px 28px rgba(17,17,17,.035); }
-.assistantHero { background: linear-gradient(135deg, #5AA9E6, #7FC8F8); color: #fff; border-radius: 24px; padding: 20px; margin-bottom: 16px; }
-.assistantHero h2 { color: #fff; font-size: 32px; line-height: .95; margin: 0 0 10px; letter-spacing: -0.055em; }
-.assistantHero p { color: rgba(255,255,255,.82); margin: 0; line-height: 1.35; }
-.assistantInputBox { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-bottom: 14px; }
-.assistantInputBox input { border: 1px solid #ddd; background: #f7f7f5; border-radius: 16px; padding: 13px 14px; font-weight: 800; }
-.assistantInputBox button { border: 0; background: #111; color: #fff; border-radius: 16px; padding: 0 16px; font-weight: 950; }
-.assistantSuggestions { display: flex; flex-wrap: wrap; gap: 8px; }
-.assistantSuggestions button { border: 1px solid rgba(90,169,230,.25); background: rgba(90,169,230,.10); color: #1f78b7; border-radius: 999px; padding: 8px 10px; font-size: 12px; font-weight: 900; }
-.assistantSuggestions button:hover { background: linear-gradient(135deg, #5AA9E6, #FF6392); color: #fff; border-color: transparent; }
-.assistantChat { display: flex; flex-direction: column; gap: 14px; }
-.assistantBubble { border-radius: 24px; padding: 18px; max-width: 900px; }
-.assistantBubble.user { align-self: flex-end; background: #111; color: #fff; max-width: 70%; }
-.assistantBubble.assistant { background: #fff; border: 1px solid #ddd; box-shadow: 0 10px 28px rgba(17,17,17,.035); }
-.assistantBubble.assistant h3 { margin: 0 0 8px; font-size: 24px; letter-spacing: -0.04em; }
-.assistantBubble.assistant p { margin: 0 0 14px; color: #555; line-height: 1.4; }
-.assistantResults { display: grid; gap: 9px; }
-.assistantResultItem { border: 1px solid #eee; background: #fafafa; border-radius: 16px; padding: 12px; text-align: left; display: grid; gap: 4px; }
-.assistantResultItem:hover { border-color: #5AA9E6; box-shadow: 0 8px 22px rgba(90,169,230,.13); background: #fff; }
-.assistantResultItem strong { font-size: 14px; line-height: 1.2; }
-.assistantResultItem span { color: #666; font-size: 12px; font-weight: 800; line-height: 1.25; }
+.catalogLayout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(440px, .55fr); gap: 22px; align-items: start; }
+.catalogGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 16px; }
+.catalogCard { background: #fff; border: 1px solid rgba(17,17,17,.10); border-radius: 26px; overflow: hidden; text-align: left; display: flex; flex-direction: column; min-height: 430px; box-shadow: 0 10px 28px rgba(17,17,17,.035); transition: .16s ease; }
+.catalogCard:hover, .catalogCard.selected { transform: translateY(-2px); border-color: var(--cma-cool-sky); box-shadow: 0 16px 34px rgba(90,169,230,.16); }
+.catalogImage { height: 170px; background: linear-gradient(135deg, rgba(90,169,230,.18), rgba(255,99,146,.12)); display: grid; place-items: center; color: #777; font-weight: 900; }
+.catalogImage img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.catalogBody { padding: 16px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.catalogBody h3 { margin: 0; font-size: 19px; line-height: 1.08; letter-spacing: -0.035em; }
+.catalogBody p { margin: 0; color: #555; font-size: 13px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.catalogMeta { display: grid; gap: 5px; color: #666; font-size: 12px; font-weight: 800; margin-top: auto; }
+.catalogFooter { border-top: 1px solid #eee; padding-top: 11px; display: flex; justify-content: space-between; gap: 12px; align-items: center; font-size: 12px; color: #666; font-weight: 900; }
+.catalogFooter strong { color: var(--cma-rose-kiss); }
 
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
@@ -5572,10 +5269,6 @@ body {
   .liveContentGrid { grid-template-columns: 1fr; }
 
   .barcelona2026Welcome { grid-template-columns: 1fr; }
-
-  .assistantLayout { grid-template-columns: 1fr; }
-  .assistantPanel { position: static; }
-  .assistantBubble.user { max-width: 100%; }
 
   .spacesMapLayout { grid-template-columns: 1fr; }
   .spacesMapPanel { position: static; }
@@ -6228,28 +5921,18 @@ body {
 }
 
 
-.assistantLayout { display: grid; grid-template-columns: 420px 1fr; gap: 22px; align-items: start; }
-.assistantPanel { position: sticky; top: 28px; background: #fff; border: 1px solid #ddd; border-radius: 28px; padding: 20px; box-shadow: 0 10px 28px rgba(17,17,17,.035); }
-.assistantHero { background: linear-gradient(135deg, #5AA9E6, #7FC8F8); color: #fff; border-radius: 24px; padding: 20px; margin-bottom: 16px; }
-.assistantHero h2 { color: #fff; font-size: 32px; line-height: .95; margin: 0 0 10px; letter-spacing: -0.055em; }
-.assistantHero p { color: rgba(255,255,255,.82); margin: 0; line-height: 1.35; }
-.assistantInputBox { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-bottom: 14px; }
-.assistantInputBox input { border: 1px solid #ddd; background: #f7f7f5; border-radius: 16px; padding: 13px 14px; font-weight: 800; }
-.assistantInputBox button { border: 0; background: #111; color: #fff; border-radius: 16px; padding: 0 16px; font-weight: 950; }
-.assistantSuggestions { display: flex; flex-wrap: wrap; gap: 8px; }
-.assistantSuggestions button { border: 1px solid rgba(90,169,230,.25); background: rgba(90,169,230,.10); color: #1f78b7; border-radius: 999px; padding: 8px 10px; font-size: 12px; font-weight: 900; }
-.assistantSuggestions button:hover { background: linear-gradient(135deg, #5AA9E6, #FF6392); color: #fff; border-color: transparent; }
-.assistantChat { display: flex; flex-direction: column; gap: 14px; }
-.assistantBubble { border-radius: 24px; padding: 18px; max-width: 900px; }
-.assistantBubble.user { align-self: flex-end; background: #111; color: #fff; max-width: 70%; }
-.assistantBubble.assistant { background: #fff; border: 1px solid #ddd; box-shadow: 0 10px 28px rgba(17,17,17,.035); }
-.assistantBubble.assistant h3 { margin: 0 0 8px; font-size: 24px; letter-spacing: -0.04em; }
-.assistantBubble.assistant p { margin: 0 0 14px; color: #555; line-height: 1.4; }
-.assistantResults { display: grid; gap: 9px; }
-.assistantResultItem { border: 1px solid #eee; background: #fafafa; border-radius: 16px; padding: 12px; text-align: left; display: grid; gap: 4px; }
-.assistantResultItem:hover { border-color: #5AA9E6; box-shadow: 0 8px 22px rgba(90,169,230,.13); background: #fff; }
-.assistantResultItem strong { font-size: 14px; line-height: 1.2; }
-.assistantResultItem span { color: #666; font-size: 12px; font-weight: 800; line-height: 1.25; }
+.catalogLayout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(440px, .55fr); gap: 22px; align-items: start; }
+.catalogGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 16px; }
+.catalogCard { background: #fff; border: 1px solid rgba(17,17,17,.10); border-radius: 26px; overflow: hidden; text-align: left; display: flex; flex-direction: column; min-height: 430px; box-shadow: 0 10px 28px rgba(17,17,17,.035); transition: .16s ease; }
+.catalogCard:hover, .catalogCard.selected { transform: translateY(-2px); border-color: var(--cma-cool-sky); box-shadow: 0 16px 34px rgba(90,169,230,.16); }
+.catalogImage { height: 170px; background: linear-gradient(135deg, rgba(90,169,230,.18), rgba(255,99,146,.12)); display: grid; place-items: center; color: #777; font-weight: 900; }
+.catalogImage img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.catalogBody { padding: 16px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.catalogBody h3 { margin: 0; font-size: 19px; line-height: 1.08; letter-spacing: -0.035em; }
+.catalogBody p { margin: 0; color: #555; font-size: 13px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.catalogMeta { display: grid; gap: 5px; color: #666; font-size: 12px; font-weight: 800; margin-top: auto; }
+.catalogFooter { border-top: 1px solid #eee; padding-top: 11px; display: flex; justify-content: space-between; gap: 12px; align-items: center; font-size: 12px; color: #666; font-weight: 900; }
+.catalogFooter strong { color: var(--cma-rose-kiss); }
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -7029,28 +6712,18 @@ body {
 }
 
 
-.assistantLayout { display: grid; grid-template-columns: 420px 1fr; gap: 22px; align-items: start; }
-.assistantPanel { position: sticky; top: 28px; background: #fff; border: 1px solid #ddd; border-radius: 28px; padding: 20px; box-shadow: 0 10px 28px rgba(17,17,17,.035); }
-.assistantHero { background: linear-gradient(135deg, #5AA9E6, #7FC8F8); color: #fff; border-radius: 24px; padding: 20px; margin-bottom: 16px; }
-.assistantHero h2 { color: #fff; font-size: 32px; line-height: .95; margin: 0 0 10px; letter-spacing: -0.055em; }
-.assistantHero p { color: rgba(255,255,255,.82); margin: 0; line-height: 1.35; }
-.assistantInputBox { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-bottom: 14px; }
-.assistantInputBox input { border: 1px solid #ddd; background: #f7f7f5; border-radius: 16px; padding: 13px 14px; font-weight: 800; }
-.assistantInputBox button { border: 0; background: #111; color: #fff; border-radius: 16px; padding: 0 16px; font-weight: 950; }
-.assistantSuggestions { display: flex; flex-wrap: wrap; gap: 8px; }
-.assistantSuggestions button { border: 1px solid rgba(90,169,230,.25); background: rgba(90,169,230,.10); color: #1f78b7; border-radius: 999px; padding: 8px 10px; font-size: 12px; font-weight: 900; }
-.assistantSuggestions button:hover { background: linear-gradient(135deg, #5AA9E6, #FF6392); color: #fff; border-color: transparent; }
-.assistantChat { display: flex; flex-direction: column; gap: 14px; }
-.assistantBubble { border-radius: 24px; padding: 18px; max-width: 900px; }
-.assistantBubble.user { align-self: flex-end; background: #111; color: #fff; max-width: 70%; }
-.assistantBubble.assistant { background: #fff; border: 1px solid #ddd; box-shadow: 0 10px 28px rgba(17,17,17,.035); }
-.assistantBubble.assistant h3 { margin: 0 0 8px; font-size: 24px; letter-spacing: -0.04em; }
-.assistantBubble.assistant p { margin: 0 0 14px; color: #555; line-height: 1.4; }
-.assistantResults { display: grid; gap: 9px; }
-.assistantResultItem { border: 1px solid #eee; background: #fafafa; border-radius: 16px; padding: 12px; text-align: left; display: grid; gap: 4px; }
-.assistantResultItem:hover { border-color: #5AA9E6; box-shadow: 0 8px 22px rgba(90,169,230,.13); background: #fff; }
-.assistantResultItem strong { font-size: 14px; line-height: 1.2; }
-.assistantResultItem span { color: #666; font-size: 12px; font-weight: 800; line-height: 1.25; }
+.catalogLayout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(440px, .55fr); gap: 22px; align-items: start; }
+.catalogGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 16px; }
+.catalogCard { background: #fff; border: 1px solid rgba(17,17,17,.10); border-radius: 26px; overflow: hidden; text-align: left; display: flex; flex-direction: column; min-height: 430px; box-shadow: 0 10px 28px rgba(17,17,17,.035); transition: .16s ease; }
+.catalogCard:hover, .catalogCard.selected { transform: translateY(-2px); border-color: var(--cma-cool-sky); box-shadow: 0 16px 34px rgba(90,169,230,.16); }
+.catalogImage { height: 170px; background: linear-gradient(135deg, rgba(90,169,230,.18), rgba(255,99,146,.12)); display: grid; place-items: center; color: #777; font-weight: 900; }
+.catalogImage img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.catalogBody { padding: 16px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.catalogBody h3 { margin: 0; font-size: 19px; line-height: 1.08; letter-spacing: -0.035em; }
+.catalogBody p { margin: 0; color: #555; font-size: 13px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.catalogMeta { display: grid; gap: 5px; color: #666; font-size: 12px; font-weight: 800; margin-top: auto; }
+.catalogFooter { border-top: 1px solid #eee; padding-top: 11px; display: flex; justify-content: space-between; gap: 12px; align-items: center; font-size: 12px; color: #666; font-weight: 900; }
+.catalogFooter strong { color: var(--cma-rose-kiss); }
 
 @media (max-width: 1000px) {
   .activitySearchRow {
