@@ -2284,7 +2284,7 @@ function getQualityIssues(row, inscriptionCountByIdWeb = {}) {
   return issues;
 }
 
-function DireccioView({ rows, inscripcions, setView, setSelectedActivityId }) {
+function DireccioView({ rows, allRows = rows, dataScope = "published", inscripcions, setView, setSelectedActivityId }) {
   const [selectedIssue, setSelectedIssue] = useState("all");
   const [query, setQuery] = useState("");
 
@@ -2354,6 +2354,10 @@ function DireccioView({ rows, inscripcions, setView, setSelectedActivityId }) {
     ? Math.round(qualityRows.reduce((sum, item) => sum + item.score, 0) / qualityRows.length)
     : 100;
 
+  const publishedCount = allRows.filter((row) => row.importar).length;
+  const unpublishedCount = allRows.length - publishedCount;
+  const publicationPercent = allRows.length ? Math.round((publishedCount / allRows.length) * 100) : 0;
+
   function openActivity(row) {
     setSelectedActivityId(row._row || row.idIntern);
     setView("activitats");
@@ -2363,15 +2367,23 @@ function DireccioView({ rows, inscripcions, setView, setSelectedActivityId }) {
     <>
       <Top
         title="Direcció"
-        subtitle="Control executiu de qualitat de dades: camps buits, fitxes incompletes i activitats que cal revisar."
+        subtitle={`Control executiu de qualitat de dades · Mode actual: ${getScopeLabel(dataScope)}`}
       />
 
       <div className="stats dashboardStats">
+        <KpiCard icon="🌐" tone="blue" label="Publicades" value={publishedCount} />
+        <KpiCard icon="📝" tone="yellow" label="No publicades" value={unpublishedCount} />
+        <KpiCard icon="%" tone="green" label="Índex publicació" value={`${publicationPercent}%`} />
         <KpiCard icon="✓" tone="green" label="Completitud mitjana" value={`${averageScore}%`} />
-        <KpiCard icon="⚠️" tone="peach" label="Activitats amb avisos" value={qualityRows.length} />
+        <KpiCard icon="⚠️" tone="peach" label="Avisos en mode actual" value={qualityRows.length} />
+      </div>
+
+      <div className="stats dashboardStats directionSecondaryStats">
         <KpiCard icon="🖼️" tone="yellow" label="Sense imatge" value={issueTypes.find((i) => i.id === "Sense imatge")?.count || 0} />
         <KpiCard icon="📍" tone="purple" label="Sense espai" value={issueTypes.find((i) => i.id === "Sense espai")?.count || 0} />
         <KpiCard icon="👥" tone="blue" label="Sense inscripcions" value={issueTypes.find((i) => i.id === "Sense inscripcions")?.count || 0} />
+        <KpiCard icon="EN" tone="peach" label="Sense anglès" value={issueTypes.find((i) => i.id === "Sense anglès")?.count || 0} />
+        <KpiCard icon="♿" tone="green" label="Sense accessibilitat" value={issueTypes.find((i) => i.id === "Sense accessibilitat")?.count || 0} />
       </div>
 
       <div className="toolbar activitiesToolbar directionToolbar">
@@ -3443,11 +3455,68 @@ function LoginScreen({ userName, setUserName, role, setRole, onEnter }) {
   );
 }
 
+
+function getScopedRows(rows, dataScope) {
+  if (dataScope === "published") return rows.filter((row) => row.importar);
+  if (dataScope === "unpublished") return rows.filter((row) => !row.importar);
+  return rows;
+}
+
+function getScopeLabel(dataScope) {
+  const labels = {
+    published: "Publicades",
+    unpublished: "No publicades",
+    all: "Totes",
+  };
+
+  return labels[dataScope] || "Publicades";
+}
+
+function DataScopeControl({ dataScope, setDataScope, rows }) {
+  const published = rows.filter((row) => row.importar).length;
+  const unpublished = rows.length - published;
+
+  return (
+    <div className="dataScopeControl">
+      <div>
+        <span>Mode dades</span>
+        <strong>{getScopeLabel(dataScope)}</strong>
+      </div>
+
+      <div className="dataScopeButtons">
+        <button
+          type="button"
+          className={dataScope === "published" ? "active" : ""}
+          onClick={() => setDataScope("published")}
+        >
+          Publicades · {published}
+        </button>
+        <button
+          type="button"
+          className={dataScope === "unpublished" ? "active" : ""}
+          onClick={() => setDataScope("unpublished")}
+        >
+          No publicades · {unpublished}
+        </button>
+        <button
+          type="button"
+          className={dataScope === "all" ? "active" : ""}
+          onClick={() => setDataScope("all")}
+        >
+          Totes · {rows.length}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
 function App() {
   const [authenticated, setAuthenticated] = useState(false);
   const [userName, setUserName] = useState("");
   const [role, setRole] = useState("direccio");
   const [rows, setRows] = useState([]);
+  const [dataScope, setDataScope] = useState("published");
   const [inscripcions, setInscripcions] = useState([]);
   const [apiSpaces, setApiSpaces] = useState([]);
   const [selectedActivityId, setSelectedActivityId] = useState("");
@@ -3455,6 +3524,8 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState("Carregant API...");
   const [error, setError] = useState("");
+
+  const scopedRows = useMemo(() => getScopedRows(rows, dataScope), [rows, dataScope]);
 
   useEffect(() => {
     Promise.all([
@@ -3570,7 +3641,7 @@ function App() {
       <Shell
         view={view}
         setView={setView}
-        rows={rows}
+        rows={scopedRows}
         status={status}
         userName={userName}
         role={role}
@@ -3580,10 +3651,15 @@ function App() {
         {!canSeeView(role, view) && (
           <div className="notice">Aquest perfil no té accés a aquesta vista. Selecciona una pestanya disponible al menú lateral.</div>
         )}
-        {view === "dashboard" && <DashboardView rows={rows} inscripcions={inscripcions} />}
+        {(role === "direccio" || role === "admin") && (
+          <DataScopeControl dataScope={dataScope} setDataScope={setDataScope} rows={rows} />
+        )}
+        {view === "dashboard" && <DashboardView rows={scopedRows} inscripcions={inscripcions} />}
         {view === "direccio" && canSeeView(role, "direccio") && (
           <DireccioView
-            rows={rows}
+            rows={scopedRows}
+            allRows={rows}
+            dataScope={dataScope}
             inscripcions={inscripcions}
             setView={setView}
             setSelectedActivityId={setSelectedActivityId}
@@ -3591,23 +3667,23 @@ function App() {
         )}
         {view === "activitats" && (
           <ActivitiesView
-            rows={rows}
+            rows={scopedRows}
             setView={setView}
             selectedActivityId={selectedActivityId}
             setSelectedActivityId={setSelectedActivityId}
           />
         )}
-        {view === "propostes" && <ProposalsView rows={rows} />}
+        {view === "propostes" && <ProposalsView rows={scopedRows} />}
         {view === "calendari" && (
           <CalendarView
-            rows={rows}
+            rows={scopedRows}
             setView={setView}
             setSelectedActivityId={setSelectedActivityId}
           />
         )}
         {view === "espais" && (
           <SpacesView
-            rows={rows}
+            rows={scopedRows}
             apiSpaces={apiSpaces}
             setView={setView}
             setSelectedActivityId={setSelectedActivityId}
@@ -3944,6 +4020,15 @@ p { color: #666; }
 .directionIssueTags span { background: #fff0d6; border: 1px solid #f0d7a5; color: #8a5700; border-radius: 999px; padding: 5px 8px; font-size: 11px; font-weight: 900; }
 .directionToolbar { margin-bottom: 18px; }
 
+
+.dataScopeControl { background: #111; color: #fff; border-radius: 22px; padding: 12px 14px; margin-bottom: 22px; display: flex; justify-content: space-between; gap: 14px; align-items: center; }
+.dataScopeControl span { display: block; color: rgba(255,255,255,.62); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; }
+.dataScopeControl strong { display: block; font-size: 18px; letter-spacing: -0.03em; }
+.dataScopeButtons { display: flex; flex-wrap: wrap; gap: 8px; }
+.dataScopeButtons button { border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.08); color: #fff; border-radius: 999px; padding: 8px 11px; font-size: 12px; font-weight: 900; }
+.dataScopeButtons button.active { background: #fff; color: #111; border-color: #fff; }
+.directionSecondaryStats { margin-top: -10px; }
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -3961,6 +4046,8 @@ p { color: #666; }
   .directionIssueList { max-height: none; }
   .directionIssueItem { grid-template-columns: 1fr; }
   .directionIssueTags { justify-content: flex-start; }
+
+  .dataScopeControl { align-items: flex-start; flex-direction: column; }
 
   .spacesMapLayout { grid-template-columns: 1fr; }
   .spacesMapPanel { position: static; }
@@ -4228,6 +4315,15 @@ p { color: #666; }
 .directionIssueTags { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; align-content: flex-start; }
 .directionIssueTags span { background: #fff0d6; border: 1px solid #f0d7a5; color: #8a5700; border-radius: 999px; padding: 5px 8px; font-size: 11px; font-weight: 900; }
 .directionToolbar { margin-bottom: 18px; }
+
+
+.dataScopeControl { background: #111; color: #fff; border-radius: 22px; padding: 12px 14px; margin-bottom: 22px; display: flex; justify-content: space-between; gap: 14px; align-items: center; }
+.dataScopeControl span { display: block; color: rgba(255,255,255,.62); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; }
+.dataScopeControl strong { display: block; font-size: 18px; letter-spacing: -0.03em; }
+.dataScopeButtons { display: flex; flex-wrap: wrap; gap: 8px; }
+.dataScopeButtons button { border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.08); color: #fff; border-radius: 999px; padding: 8px 11px; font-size: 12px; font-weight: 900; }
+.dataScopeButtons button.active { background: #fff; color: #111; border-color: #fff; }
+.directionSecondaryStats { margin-top: -10px; }
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -4622,6 +4718,15 @@ p { color: #666; }
 .directionIssueTags { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; align-content: flex-start; }
 .directionIssueTags span { background: #fff0d6; border: 1px solid #f0d7a5; color: #8a5700; border-radius: 999px; padding: 5px 8px; font-size: 11px; font-weight: 900; }
 .directionToolbar { margin-bottom: 18px; }
+
+
+.dataScopeControl { background: #111; color: #fff; border-radius: 22px; padding: 12px 14px; margin-bottom: 22px; display: flex; justify-content: space-between; gap: 14px; align-items: center; }
+.dataScopeControl span { display: block; color: rgba(255,255,255,.62); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; }
+.dataScopeControl strong { display: block; font-size: 18px; letter-spacing: -0.03em; }
+.dataScopeButtons { display: flex; flex-wrap: wrap; gap: 8px; }
+.dataScopeButtons button { border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.08); color: #fff; border-radius: 999px; padding: 8px 11px; font-size: 12px; font-weight: 900; }
+.dataScopeButtons button.active { background: #fff; color: #111; border-color: #fff; }
+.directionSecondaryStats { margin-top: -10px; }
 
 @media (max-width: 1000px) {
   .activitySearchRow {
