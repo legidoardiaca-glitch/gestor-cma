@@ -1380,9 +1380,273 @@ function mostCommon(values) {
   return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || "Sense categoria";
 }
 
-function CalendarView({ rows, setView, setSelectedActivityId }) {
+
+function toLocalISODate(date) {
+  const copy = new Date(date);
+  copy.setHours(12, 0, 0, 0);
+  return copy.toISOString().slice(0, 10);
+}
+
+function addDaysISO(dateString, days) {
+  const date = new Date(`${dateString}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  return toLocalISODate(date);
+}
+
+function isDateBetween(value, start, end) {
+  return isValidDateString(value) && value >= start && value <= end;
+}
+
+function buildInscriptionCountByIdWeb(inscripcions = []) {
+  return inscripcions.reduce((acc, row) => {
+    if (!row.idWeb) return acc;
+    acc[row.idWeb] = (acc[row.idWeb] || 0) + 1;
+    return acc;
+  }, {});
+}
+
+function getAgendaStatus(row, inscriptionCountByIdWeb = {}) {
+  const critical = [];
+  const review = [];
+
+  if (!row.dataInici) critical.push("Sense data");
+  if (!row.espai) critical.push("Sense espai");
+  if (!row.imatge) critical.push("Sense imatge");
+
+  if (!row.idWeb || !inscriptionCountByIdWeb[row.idWeb]) review.push("Sense inscripcions");
+  if (!row.idiomaAngles) review.push("Sense anglès");
+
+  const hasAccessibility =
+    row.accessRadioGuia ||
+    row.accessSubtitulacio ||
+    row.accessLlenguaSignes ||
+    row.accessBraille ||
+    row.accessLecturaFacil ||
+    row.accessMobilitatReduida ||
+    Boolean(row.accessDetalls);
+
+  if (!hasAccessibility) review.push("Sense accessibilitat");
+
+  if (critical.length) {
+    return {
+      tone: "critical",
+      label: "Crítica",
+      icon: "🔴",
+      issues: [...critical, ...review],
+    };
+  }
+
+  if (review.length) {
+    return {
+      tone: "review",
+      label: "Revisar",
+      icon: "🟡",
+      issues: review,
+    };
+  }
+
+  return {
+    tone: "ok",
+    label: "Completa",
+    icon: "🟢",
+    issues: [],
+  };
+}
+
+function AgendaView({ rows, inscripcions = [], query, onOpen }) {
+  const today = toLocalISODate(new Date());
+  const tomorrow = addDaysISO(today, 1);
+  const weekEnd = addDaysISO(today, 7);
+  const monthEnd = addDaysISO(today, 30);
+  const inscriptionCountByIdWeb = useMemo(() => buildInscriptionCountByIdWeb(inscripcions), [inscripcions]);
+
+  const agendaRows = useMemo(() => {
+    return rows
+      .filter((row) => isValidDateString(row.dataInici))
+      .filter((row) =>
+        [row.idIntern, row.idWeb, row.titolWeb, row.titol, row.espai, row.categoria, row.districte, row.encarregada]
+          .join(" ")
+          .toLowerCase()
+          .includes(query.toLowerCase())
+      )
+      .sort((a, b) =>
+        `${a.dataInici || "9999-99-99"} ${a.horaInici || "99:99"}`.localeCompare(
+          `${b.dataInici || "9999-99-99"} ${b.horaInici || "99:99"}`
+        )
+      );
+  }, [rows, query]);
+
+  const todayRows = agendaRows.filter((row) => row.dataInici === today);
+  const tomorrowRows = agendaRows.filter((row) => row.dataInici === tomorrow);
+  const weekRows = agendaRows.filter((row) => isDateBetween(row.dataInici, today, weekEnd));
+  const monthRows = agendaRows.filter((row) => isDateBetween(row.dataInici, today, monthEnd));
+
+  const next7Critical = weekRows.filter((row) => getAgendaStatus(row, inscriptionCountByIdWeb).tone === "critical");
+  const next7Review = weekRows.filter((row) => getAgendaStatus(row, inscriptionCountByIdWeb).tone === "review");
+
+  const imageAlerts = weekRows.filter((row) => !row.imatge).length;
+  const spaceAlerts = weekRows.filter((row) => !row.espai).length;
+  const englishAlerts = weekRows.filter((row) => !row.idiomaAngles).length;
+  const inscriptionAlerts = weekRows.filter((row) => row.idWeb && !inscriptionCountByIdWeb[row.idWeb]).length;
+
+  return (
+    <div className="agendaView">
+      <div className="agendaHero">
+        <div>
+          <p className="eyebrow">Agenda operativa</p>
+          <h2>{formatDate(today)}</h2>
+          <p>Seguiment de les activitats imminents i dels avisos que cal revisar abans que passin.</p>
+        </div>
+
+        <div className="agendaHeroStats">
+          <div>
+            <strong>{todayRows.length}</strong>
+            <span>avui</span>
+          </div>
+          <div>
+            <strong>{weekRows.length}</strong>
+            <span>7 dies</span>
+          </div>
+          <div>
+            <strong>{next7Critical.length}</strong>
+            <span>crítiques</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="agendaAlerts">
+        <div className={next7Critical.length ? "agendaAlert critical" : "agendaAlert ok"}>
+          <strong>{next7Critical.length}</strong>
+          <span>activitats crítiques els pròxims 7 dies</span>
+        </div>
+        <div className={next7Review.length ? "agendaAlert review" : "agendaAlert ok"}>
+          <strong>{next7Review.length}</strong>
+          <span>activitats a revisar els pròxims 7 dies</span>
+        </div>
+        <div className={imageAlerts ? "agendaAlert review" : "agendaAlert ok"}>
+          <strong>{imageAlerts}</strong>
+          <span>sense imatge</span>
+        </div>
+        <div className={spaceAlerts ? "agendaAlert critical" : "agendaAlert ok"}>
+          <strong>{spaceAlerts}</strong>
+          <span>sense espai</span>
+        </div>
+        <div className={englishAlerts ? "agendaAlert review" : "agendaAlert ok"}>
+          <strong>{englishAlerts}</strong>
+          <span>sense anglès</span>
+        </div>
+        <div className={inscriptionAlerts ? "agendaAlert review" : "agendaAlert ok"}>
+          <strong>{inscriptionAlerts}</strong>
+          <span>sense inscripcions</span>
+        </div>
+      </div>
+
+      <div className="agendaGrid">
+        <AgendaSection
+          title="Avui"
+          icon="🔴"
+          items={todayRows}
+          inscriptionCountByIdWeb={inscriptionCountByIdWeb}
+          onOpen={onOpen}
+          empty="No hi ha activitats programades avui."
+        />
+
+        <AgendaSection
+          title="Demà"
+          icon="🟡"
+          items={tomorrowRows}
+          inscriptionCountByIdWeb={inscriptionCountByIdWeb}
+          onOpen={onOpen}
+          empty="No hi ha activitats programades demà."
+        />
+
+        <AgendaSection
+          title="Aquesta setmana"
+          icon="📅"
+          items={weekRows.slice(0, 18)}
+          inscriptionCountByIdWeb={inscriptionCountByIdWeb}
+          onOpen={onOpen}
+          empty="No hi ha activitats els pròxims 7 dies."
+        />
+
+        <AgendaSection
+          title="Pròxims 30 dies"
+          icon="⏳"
+          items={monthRows.slice(0, 24)}
+          inscriptionCountByIdWeb={inscriptionCountByIdWeb}
+          onOpen={onOpen}
+          empty="No hi ha activitats els pròxims 30 dies."
+        />
+      </div>
+    </div>
+  );
+}
+
+function AgendaSection({ title, icon, items, inscriptionCountByIdWeb, onOpen, empty }) {
+  return (
+    <section className="agendaSection">
+      <div className="agendaSectionHeader">
+        <div>
+          <span>{icon}</span>
+          <h2>{title}</h2>
+        </div>
+        <Badge>{items.length} activitats</Badge>
+      </div>
+
+      <div className="agendaItems">
+        {items.map((row) => (
+          <AgendaItem
+            key={`${row.idIntern}-${row._row}`}
+            row={row}
+            status={getAgendaStatus(row, inscriptionCountByIdWeb)}
+            inscriptions={row.idWeb ? inscriptionCountByIdWeb[row.idWeb] || 0 : 0}
+            onOpen={onOpen}
+          />
+        ))}
+
+        {items.length === 0 && <div className="notice success">{empty}</div>}
+      </div>
+    </section>
+  );
+}
+
+function AgendaItem({ row, status, inscriptions, onOpen }) {
+  return (
+    <button className={`agendaItem ${status.tone}`} type="button" onClick={() => onOpen(row)}>
+      <time>{row.horaInici || "—"}</time>
+
+      <div className="agendaItemMain">
+        <div className="badges">
+          <Badge>{row.idIntern || row.idWeb || "Sense ID"}</Badge>
+          <Badge>{row.encarregada || "Sense encarregada"}</Badge>
+          <span className={`agendaStatus ${status.tone}`}>{status.icon} {status.label}</span>
+        </div>
+
+        <h3>{row.titolWeb || row.titol || "Sense títol"}</h3>
+        <p>{formatCompactDate(row.dataInici)} · {row.espai || "Sense espai"} · {row.districte || "Sense districte"}</p>
+
+        <div className="agendaMeta">
+          <span>🏷 {row.categoria || "Sense categoria"}</span>
+          <span>🎟 {inscriptions} inscripcions</span>
+        </div>
+
+        {status.issues.length > 0 && (
+          <div className="agendaIssueTags">
+            {status.issues.slice(0, 4).map((issue) => (
+              <span key={issue}>{issue}</span>
+            ))}
+            {status.issues.length > 4 && <span>+{status.issues.length - 4}</span>}
+          </div>
+        )}
+      </div>
+    </button>
+  );
+}
+
+
+function CalendarView({ rows, inscripcions = [], setView, setSelectedActivityId }) {
   const [query, setQuery] = useState("");
-  const [mode, setMode] = useState("cronologic");
+  const [mode, setMode] = useState("agenda");
 
   const filtered = rows
     .filter((row) =>
@@ -1407,7 +1671,7 @@ function CalendarView({ rows, setView, setSelectedActivityId }) {
 
   return (
     <>
-      <Top title="Calendari" subtitle="Lectura temporal del programa: cronològica, setmanal i mensual." />
+      <Top title="Calendari" subtitle="Agenda operativa i lectura temporal del programa." />
       <SearchFilters
         query={query}
         setQuery={setQuery}
@@ -1415,31 +1679,43 @@ function CalendarView({ rows, setView, setSelectedActivityId }) {
         setActiveFilter={setMode}
         placeholder="Buscar calendari..."
         filters={[
+          { id: "agenda", label: "Agenda operativa" },
           { id: "cronologic", label: "Cronològic" },
           { id: "setmanal", label: "Setmanal" },
           { id: "mensual", label: "Mensual" },
         ]}
       />
 
-      <div className="calendarList">
-        {mode === "cronologic" &&
-          Object.entries(dayGroups).map(([date, items]) => <CalendarBlock key={date} title={formatDate(date)} items={items} onOpen={openActivity} />)}
-        {mode === "setmanal" &&
-          Object.entries(weekGroups).map(([week, items]) => <CalendarBlock key={week} title={`Setmana ${week}`} items={items} onOpen={openActivity} />)}
-        {mode === "mensual" &&
-          Object.entries(monthGroups).map(([month, items]) => <MonthBlock key={month} month={month} items={items} onOpen={openActivity} />)}
+      {mode === "agenda" ? (
+        <AgendaView
+          rows={rows}
+          inscripcions={inscripcions}
+          query={query}
+          onOpen={openActivity}
+        />
+      ) : (
+        <div className="calendarList">
+          {mode === "cronologic" &&
+            Object.entries(dayGroups).map(([date, items]) => <CalendarBlock key={date} title={formatDate(date)} items={items} onOpen={openActivity} />)}
+          {mode === "setmanal" &&
+            Object.entries(weekGroups).map(([week, items]) => <CalendarBlock key={week} title={`Setmana ${week}`} items={items} onOpen={openActivity} />)}
+          {mode === "mensual" &&
+            Object.entries(monthGroups).map(([month, items]) => <MonthBlock key={month} month={month} items={items} onOpen={openActivity} />)}
 
-        {undatedRows.length > 0 && (
-          <CalendarBlock
-            title="Sense data assignada"
-            items={undatedRows}
-            onOpen={openActivity}
-          />
-        )}
-      </div>
+          {undatedRows.length > 0 && (
+            <CalendarBlock
+              title="Sense data assignada"
+              items={undatedRows}
+              onOpen={openActivity}
+            />
+          )}
+        </div>
+      )}
     </>
   );
 }
+
+
 
 function CalendarBlock({ title, items, onOpen }) {
   return (
@@ -3677,6 +3953,7 @@ function App() {
         {view === "calendari" && (
           <CalendarView
             rows={scopedRows}
+            inscripcions={inscripcions}
             setView={setView}
             setSelectedActivityId={setSelectedActivityId}
           />
@@ -4029,6 +4306,44 @@ p { color: #666; }
 .dataScopeButtons button.active { background: #fff; color: #111; border-color: #fff; }
 .directionSecondaryStats { margin-top: -10px; }
 
+
+.agendaView { display: grid; gap: 18px; }
+.agendaHero { background: #111; color: #fff; border-radius: 28px; padding: 24px; display: flex; justify-content: space-between; gap: 22px; align-items: center; }
+.agendaHero h2 { font-size: 31px; margin: 0 0 8px; }
+.agendaHero p { color: rgba(255,255,255,.68); margin: 0; }
+.agendaHeroStats { display: grid; grid-template-columns: repeat(3, 110px); gap: 10px; }
+.agendaHeroStats div { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.16); border-radius: 20px; padding: 14px; }
+.agendaHeroStats strong { display: block; font-size: 31px; line-height: 1; letter-spacing: -0.04em; }
+.agendaHeroStats span { display: block; color: rgba(255,255,255,.66); margin-top: 6px; font-size: 12px; font-weight: 900; }
+.agendaAlerts { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+.agendaAlert { background: #fff; border: 1px solid #ddd; border-radius: 20px; padding: 14px; }
+.agendaAlert strong { display: block; font-size: 28px; line-height: 1; letter-spacing: -0.04em; }
+.agendaAlert span { display: block; color: #666; margin-top: 6px; font-size: 12px; font-weight: 800; line-height: 1.15; }
+.agendaAlert.critical { background: #fff0e9; border-color: #f1c8b8; }
+.agendaAlert.review { background: #fff7e6; border-color: #f0d7a5; }
+.agendaAlert.ok { background: #eaf7ee; border-color: #bfe2c9; }
+.agendaGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; align-items: start; }
+.agendaSection { background: #fff; border: 1px solid #ddd; border-radius: 24px; padding: 18px; }
+.agendaSectionHeader { display: flex; justify-content: space-between; gap: 12px; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 12px; margin-bottom: 12px; }
+.agendaSectionHeader div { display: flex; align-items: center; gap: 9px; }
+.agendaSectionHeader h2 { margin: 0; font-size: 20px; }
+.agendaItems { display: flex; flex-direction: column; gap: 10px; max-height: 560px; overflow: auto; padding-right: 4px; }
+.agendaItem { display: grid; grid-template-columns: 62px 1fr; gap: 12px; width: 100%; border: 1px solid #eee; background: #fff; border-radius: 18px; padding: 12px; text-align: left; transition: .15s ease; }
+.agendaItem:hover { border-color: #111; transform: translateY(-1px); }
+.agendaItem time { font-weight: 950; font-size: 16px; letter-spacing: -0.03em; color: #111; padding-top: 3px; }
+.agendaItem.critical { border-left: 5px solid #e35d3d; }
+.agendaItem.review { border-left: 5px solid #e0a12a; }
+.agendaItem.ok { border-left: 5px solid #38a35a; }
+.agendaItemMain h3 { margin: 0 0 5px; font-size: 15px; line-height: 1.2; }
+.agendaItemMain p { margin: 0; font-size: 12px; }
+.agendaStatus { display: inline-flex; align-items: center; border-radius: 999px; padding: 5px 9px; font-size: 12px; font-weight: 900; }
+.agendaStatus.critical { background: #fff0e9; color: #a63b20; }
+.agendaStatus.review { background: #fff7e6; color: #8a5700; }
+.agendaStatus.ok { background: #eaf7ee; color: #146c2e; }
+.agendaMeta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; color: #666; font-size: 12px; font-weight: 800; }
+.agendaIssueTags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.agendaIssueTags span { background: #fff0d6; border: 1px solid #f0d7a5; color: #8a5700; border-radius: 999px; padding: 5px 8px; font-size: 11px; font-weight: 900; }
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -4048,6 +4363,12 @@ p { color: #666; }
   .directionIssueTags { justify-content: flex-start; }
 
   .dataScopeControl { align-items: flex-start; flex-direction: column; }
+
+  .agendaHero { flex-direction: column; align-items: stretch; }
+  .agendaHeroStats { grid-template-columns: repeat(3, 1fr); }
+  .agendaAlerts { grid-template-columns: repeat(2, 1fr); }
+  .agendaGrid { grid-template-columns: 1fr; }
+  .agendaItems { max-height: none; }
 
   .spacesMapLayout { grid-template-columns: 1fr; }
   .spacesMapPanel { position: static; }
@@ -4324,6 +4645,44 @@ p { color: #666; }
 .dataScopeButtons button { border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.08); color: #fff; border-radius: 999px; padding: 8px 11px; font-size: 12px; font-weight: 900; }
 .dataScopeButtons button.active { background: #fff; color: #111; border-color: #fff; }
 .directionSecondaryStats { margin-top: -10px; }
+
+
+.agendaView { display: grid; gap: 18px; }
+.agendaHero { background: #111; color: #fff; border-radius: 28px; padding: 24px; display: flex; justify-content: space-between; gap: 22px; align-items: center; }
+.agendaHero h2 { font-size: 31px; margin: 0 0 8px; }
+.agendaHero p { color: rgba(255,255,255,.68); margin: 0; }
+.agendaHeroStats { display: grid; grid-template-columns: repeat(3, 110px); gap: 10px; }
+.agendaHeroStats div { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.16); border-radius: 20px; padding: 14px; }
+.agendaHeroStats strong { display: block; font-size: 31px; line-height: 1; letter-spacing: -0.04em; }
+.agendaHeroStats span { display: block; color: rgba(255,255,255,.66); margin-top: 6px; font-size: 12px; font-weight: 900; }
+.agendaAlerts { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+.agendaAlert { background: #fff; border: 1px solid #ddd; border-radius: 20px; padding: 14px; }
+.agendaAlert strong { display: block; font-size: 28px; line-height: 1; letter-spacing: -0.04em; }
+.agendaAlert span { display: block; color: #666; margin-top: 6px; font-size: 12px; font-weight: 800; line-height: 1.15; }
+.agendaAlert.critical { background: #fff0e9; border-color: #f1c8b8; }
+.agendaAlert.review { background: #fff7e6; border-color: #f0d7a5; }
+.agendaAlert.ok { background: #eaf7ee; border-color: #bfe2c9; }
+.agendaGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; align-items: start; }
+.agendaSection { background: #fff; border: 1px solid #ddd; border-radius: 24px; padding: 18px; }
+.agendaSectionHeader { display: flex; justify-content: space-between; gap: 12px; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 12px; margin-bottom: 12px; }
+.agendaSectionHeader div { display: flex; align-items: center; gap: 9px; }
+.agendaSectionHeader h2 { margin: 0; font-size: 20px; }
+.agendaItems { display: flex; flex-direction: column; gap: 10px; max-height: 560px; overflow: auto; padding-right: 4px; }
+.agendaItem { display: grid; grid-template-columns: 62px 1fr; gap: 12px; width: 100%; border: 1px solid #eee; background: #fff; border-radius: 18px; padding: 12px; text-align: left; transition: .15s ease; }
+.agendaItem:hover { border-color: #111; transform: translateY(-1px); }
+.agendaItem time { font-weight: 950; font-size: 16px; letter-spacing: -0.03em; color: #111; padding-top: 3px; }
+.agendaItem.critical { border-left: 5px solid #e35d3d; }
+.agendaItem.review { border-left: 5px solid #e0a12a; }
+.agendaItem.ok { border-left: 5px solid #38a35a; }
+.agendaItemMain h3 { margin: 0 0 5px; font-size: 15px; line-height: 1.2; }
+.agendaItemMain p { margin: 0; font-size: 12px; }
+.agendaStatus { display: inline-flex; align-items: center; border-radius: 999px; padding: 5px 9px; font-size: 12px; font-weight: 900; }
+.agendaStatus.critical { background: #fff0e9; color: #a63b20; }
+.agendaStatus.review { background: #fff7e6; color: #8a5700; }
+.agendaStatus.ok { background: #eaf7ee; color: #146c2e; }
+.agendaMeta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; color: #666; font-size: 12px; font-weight: 800; }
+.agendaIssueTags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.agendaIssueTags span { background: #fff0d6; border: 1px solid #f0d7a5; color: #8a5700; border-radius: 999px; padding: 5px 8px; font-size: 11px; font-weight: 900; }
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -4727,6 +5086,44 @@ p { color: #666; }
 .dataScopeButtons button { border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.08); color: #fff; border-radius: 999px; padding: 8px 11px; font-size: 12px; font-weight: 900; }
 .dataScopeButtons button.active { background: #fff; color: #111; border-color: #fff; }
 .directionSecondaryStats { margin-top: -10px; }
+
+
+.agendaView { display: grid; gap: 18px; }
+.agendaHero { background: #111; color: #fff; border-radius: 28px; padding: 24px; display: flex; justify-content: space-between; gap: 22px; align-items: center; }
+.agendaHero h2 { font-size: 31px; margin: 0 0 8px; }
+.agendaHero p { color: rgba(255,255,255,.68); margin: 0; }
+.agendaHeroStats { display: grid; grid-template-columns: repeat(3, 110px); gap: 10px; }
+.agendaHeroStats div { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.16); border-radius: 20px; padding: 14px; }
+.agendaHeroStats strong { display: block; font-size: 31px; line-height: 1; letter-spacing: -0.04em; }
+.agendaHeroStats span { display: block; color: rgba(255,255,255,.66); margin-top: 6px; font-size: 12px; font-weight: 900; }
+.agendaAlerts { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+.agendaAlert { background: #fff; border: 1px solid #ddd; border-radius: 20px; padding: 14px; }
+.agendaAlert strong { display: block; font-size: 28px; line-height: 1; letter-spacing: -0.04em; }
+.agendaAlert span { display: block; color: #666; margin-top: 6px; font-size: 12px; font-weight: 800; line-height: 1.15; }
+.agendaAlert.critical { background: #fff0e9; border-color: #f1c8b8; }
+.agendaAlert.review { background: #fff7e6; border-color: #f0d7a5; }
+.agendaAlert.ok { background: #eaf7ee; border-color: #bfe2c9; }
+.agendaGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; align-items: start; }
+.agendaSection { background: #fff; border: 1px solid #ddd; border-radius: 24px; padding: 18px; }
+.agendaSectionHeader { display: flex; justify-content: space-between; gap: 12px; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 12px; margin-bottom: 12px; }
+.agendaSectionHeader div { display: flex; align-items: center; gap: 9px; }
+.agendaSectionHeader h2 { margin: 0; font-size: 20px; }
+.agendaItems { display: flex; flex-direction: column; gap: 10px; max-height: 560px; overflow: auto; padding-right: 4px; }
+.agendaItem { display: grid; grid-template-columns: 62px 1fr; gap: 12px; width: 100%; border: 1px solid #eee; background: #fff; border-radius: 18px; padding: 12px; text-align: left; transition: .15s ease; }
+.agendaItem:hover { border-color: #111; transform: translateY(-1px); }
+.agendaItem time { font-weight: 950; font-size: 16px; letter-spacing: -0.03em; color: #111; padding-top: 3px; }
+.agendaItem.critical { border-left: 5px solid #e35d3d; }
+.agendaItem.review { border-left: 5px solid #e0a12a; }
+.agendaItem.ok { border-left: 5px solid #38a35a; }
+.agendaItemMain h3 { margin: 0 0 5px; font-size: 15px; line-height: 1.2; }
+.agendaItemMain p { margin: 0; font-size: 12px; }
+.agendaStatus { display: inline-flex; align-items: center; border-radius: 999px; padding: 5px 9px; font-size: 12px; font-weight: 900; }
+.agendaStatus.critical { background: #fff0e9; color: #a63b20; }
+.agendaStatus.review { background: #fff7e6; color: #8a5700; }
+.agendaStatus.ok { background: #eaf7ee; color: #146c2e; }
+.agendaMeta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; color: #666; font-size: 12px; font-weight: 800; }
+.agendaIssueTags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.agendaIssueTags span { background: #fff0d6; border: 1px solid #f0d7a5; color: #8a5700; border-radius: 999px; padding: 5px 8px; font-size: 11px; font-weight: 900; }
 
 @media (max-width: 1000px) {
   .activitySearchRow {
