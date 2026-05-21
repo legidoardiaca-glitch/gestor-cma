@@ -1526,6 +1526,20 @@ function latToWorldY(lat, zoom) {
 
 function TileSpacesMap({ spaces, selected, setSelectedName }) {
   const [zoom, setZoom] = useState(12);
+  const [center, setCenter] = useState({ lat: 41.3874, lon: 2.1686 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragRef = useRef(null);
+
+  useEffect(() => {
+    if (!selected?.latitud || !selected?.longitud) return;
+
+    const lat = parseCoordinate(selected.latitud);
+    const lon = parseCoordinate(selected.longitud);
+
+    if (lat === null || lon === null) return;
+
+    setCenter({ lat, lon });
+  }, [selected?.title]);
 
   const pointData = useMemo(() => {
     return spaces
@@ -1549,17 +1563,12 @@ function TileSpacesMap({ spaces, selected, setSelectedName }) {
       .filter(Boolean);
   }, [spaces]);
 
-  const viewport = useMemo(() => {
-    const centerLat = selected?.latitud ? parseCoordinate(selected.latitud) : 41.3874;
-    const centerLon = selected?.longitud ? parseCoordinate(selected.longitud) : 2.1686;
-
-    return {
-      centerLat: centerLat ?? 41.3874,
-      centerLon: centerLon ?? 2.1686,
-      width: 920,
-      height: 600,
-    };
-  }, [selected]);
+  const viewport = useMemo(() => ({
+    centerLat: center.lat,
+    centerLon: center.lon,
+    width: 920,
+    height: 600,
+  }), [center]);
 
   const mapData = useMemo(() => {
     const centerX = lonToWorldX(viewport.centerLon, zoom);
@@ -1585,7 +1594,7 @@ function TileSpacesMap({ spaces, selected, setSelectedName }) {
       }
     }
 
-    const points = pointData
+    const rawPoints = pointData
       .map((point) => {
         const x = lonToWorldX(point.lon, zoom) - leftWorld;
         const y = latToWorldY(point.lat, zoom) - topWorld;
@@ -1594,23 +1603,135 @@ function TileSpacesMap({ spaces, selected, setSelectedName }) {
           ...point,
           x,
           y,
-          visible: x > -40 && x < viewport.width + 40 && y > -40 && y < viewport.height + 40,
+          visible: x > -80 && x < viewport.width + 80 && y > -80 && y < viewport.height + 80,
         };
       })
       .filter((point) => point.visible);
 
-    return { tiles, points };
+    const clusterDistance = zoom <= 11 ? 58 : zoom === 12 ? 42 : zoom === 13 ? 28 : 0;
+    const clustered = [];
+
+    rawPoints.forEach((point) => {
+      if (!clusterDistance) {
+        clustered.push({
+          type: "point",
+          ...point,
+          points: [point],
+        });
+        return;
+      }
+
+      const cluster = clustered.find((item) => {
+        const dx = item.x - point.x;
+        const dy = item.y - point.y;
+        return Math.sqrt(dx * dx + dy * dy) < clusterDistance;
+      });
+
+      if (cluster) {
+        cluster.points.push(point);
+        cluster.x = cluster.points.reduce((sum, p) => sum + p.x, 0) / cluster.points.length;
+        cluster.y = cluster.points.reduce((sum, p) => sum + p.y, 0) / cluster.points.length;
+        cluster.count = cluster.points.reduce((sum, p) => sum + (p.count || 0), 0);
+        cluster.type = cluster.points.length > 1 ? "cluster" : "point";
+      } else {
+        clustered.push({
+          type: "point",
+          x: point.x,
+          y: point.y,
+          count: point.count || 0,
+          points: [point],
+          ...point,
+        });
+      }
+    });
+
+    return { tiles, points: clustered };
   }, [pointData, viewport, zoom]);
+
+  function worldToLatLon(worldX, worldY, zoomValue) {
+    const scale = Math.pow(2, zoomValue);
+    const lon = (worldX / (256 * scale)) * 360 - 180;
+    const n = Math.PI - (2 * Math.PI * worldY) / (256 * scale);
+    const lat = (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+    return { lat, lon };
+  }
+
+  function handlePointerDown(event) {
+    if (!event.ctrlKey) return;
+
+    const centerX = lonToWorldX(center.lon, zoom);
+    const centerY = latToWorldY(center.lat, zoom);
+
+    dragRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      centerX,
+      centerY,
+    };
+
+    setIsDragging(true);
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+
+  function handlePointerMove(event) {
+    if (!dragRef.current) return;
+
+    const dx = event.clientX - dragRef.current.startX;
+    const dy = event.clientY - dragRef.current.startY;
+
+    const newCenterX = dragRef.current.centerX - dx;
+    const newCenterY = dragRef.current.centerY - dy;
+    const nextCenter = worldToLatLon(newCenterX, newCenterY, zoom);
+
+    setCenter(nextCenter);
+  }
+
+  function handlePointerUp(event) {
+    dragRef.current = null;
+    setIsDragging(false);
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+  }
+
+  function zoomIn() {
+    setZoom((z) => Math.min(16, z + 1));
+  }
+
+  function zoomOut() {
+    setZoom((z) => Math.max(10, z - 1));
+  }
+
+  function openCluster(cluster) {
+    const first = cluster.points[0];
+    if (!first) return;
+
+    if (cluster.points.length === 1 || zoom >= 14) {
+      setSelectedName(first.title);
+      return;
+    }
+
+    setCenter({ lat: first.lat, lon: first.lon });
+    setZoom((z) => Math.min(16, z + 1));
+  }
 
   return (
     <div className="tileMapShell">
       <div className="tileMapControls">
-        <button type="button" onClick={() => setZoom((z) => Math.min(16, z + 1))}>+</button>
-        <button type="button" onClick={() => setZoom((z) => Math.max(10, z - 1))}>−</button>
+        <button type="button" onClick={zoomIn}>+</button>
+        <button type="button" onClick={zoomOut}>−</button>
         <span>Zoom {zoom}</span>
       </div>
 
-      <div className="tileMapCanvas">
+      <div className="tileMapCtrlHint">
+        Mantén <b>Ctrl</b> premut i arrossega per moure el mapa
+      </div>
+
+      <div
+        className={`tileMapCanvas ${isDragging ? "dragging" : ""}`}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+      >
         <div className="tileMapInner">
           {mapData.tiles.map((tile) => (
             <img
@@ -1620,30 +1741,39 @@ function TileSpacesMap({ spaces, selected, setSelectedName }) {
               loading="lazy"
               className="tileMapTile"
               style={{ left: `${tile.left}px`, top: `${tile.top}px` }}
+              draggable="false"
             />
           ))}
 
-          {mapData.points.map((point) => {
-            const isSelected = selected?.title === point.title;
-            const size = Math.max(22, Math.min(38, 22 + Math.sqrt(point.count || 1) * 3));
+          {mapData.points.map((cluster, index) => {
+            const isCluster = cluster.points.length > 1;
+            const first = cluster.points[0];
+            const isSelected = !isCluster && selected?.title === first?.title;
+            const size = isCluster
+              ? Math.max(34, Math.min(56, 30 + Math.sqrt(cluster.points.length) * 7))
+              : Math.max(22, Math.min(38, 22 + Math.sqrt(first?.count || 1) * 3));
 
             return (
               <button
-                key={`${point.title}-${point.lat}-${point.lon}`}
+                key={`${cluster.type}-${index}-${cluster.x}-${cluster.y}`}
                 type="button"
-                className={`tileMapPoint ${isSelected ? "selected" : ""}`}
+                className={`tileMapPoint ${isCluster ? "cluster" : ""} ${isSelected ? "selected" : ""}`}
                 style={{
-                  left: `${point.x}px`,
-                  top: `${point.y}px`,
+                  left: `${cluster.x}px`,
+                  top: `${cluster.y}px`,
                   width: `${size}px`,
                   height: `${size}px`,
                   marginLeft: `${-size / 2}px`,
                   marginTop: `${-size / 2}px`,
                 }}
-                title={`${point.title} · ${point.count} passis`}
-                onClick={() => setSelectedName(point.title)}
+                title={
+                  isCluster
+                    ? `${cluster.points.length} espais agrupats`
+                    : `${first?.title} · ${first?.count} passis`
+                }
+                onClick={() => openCluster(cluster)}
               >
-                <span>{point.count || ""}</span>
+                <span>{isCluster ? cluster.points.length : first?.count || ""}</span>
               </button>
             );
           })}
@@ -1656,6 +1786,7 @@ function TileSpacesMap({ spaces, selected, setSelectedName }) {
     </div>
   );
 }
+
 
 
 function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
@@ -3452,6 +3583,13 @@ p { color: #666; }
 .mapEmptyPanel h2 { font-size: 28px; }
 .mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
 
+
+.tileMapCanvas.dragging { cursor: grabbing; }
+.tileMapCanvas:not(.dragging) { cursor: default; }
+.tileMapCtrlHint { position: absolute; z-index: 30; top: 12px; right: 12px; background: rgba(255,255,255,.94); border: 1px solid #ddd; border-radius: 999px; padding: 10px 13px; color: #555; font-size: 12px; font-weight: 800; box-shadow: 0 4px 16px rgba(0,0,0,.08); pointer-events: none; }
+.tileMapPoint.cluster { background: #111; border-color: #fff; }
+.tileMapPoint.cluster span { font-size: 12px; }
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -3680,6 +3818,13 @@ p { color: #666; }
 .mapEmptyPanel { min-height: 360px; display: flex; flex-direction: column; justify-content: center; }
 .mapEmptyPanel h2 { font-size: 28px; }
 .mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
+
+
+.tileMapCanvas.dragging { cursor: grabbing; }
+.tileMapCanvas:not(.dragging) { cursor: default; }
+.tileMapCtrlHint { position: absolute; z-index: 30; top: 12px; right: 12px; background: rgba(255,255,255,.94); border: 1px solid #ddd; border-radius: 999px; padding: 10px 13px; color: #555; font-size: 12px; font-weight: 800; box-shadow: 0 4px 16px rgba(0,0,0,.08); pointer-events: none; }
+.tileMapPoint.cluster { background: #111; border-color: #fff; }
+.tileMapPoint.cluster span { font-size: 12px; }
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -4024,6 +4169,13 @@ p { color: #666; }
 .mapEmptyPanel { min-height: 360px; display: flex; flex-direction: column; justify-content: center; }
 .mapEmptyPanel h2 { font-size: 28px; }
 .mapEmptyPanel p { line-height: 1.45; max-width: 360px; }
+
+
+.tileMapCanvas.dragging { cursor: grabbing; }
+.tileMapCanvas:not(.dragging) { cursor: default; }
+.tileMapCtrlHint { position: absolute; z-index: 30; top: 12px; right: 12px; background: rgba(255,255,255,.94); border: 1px solid #ddd; border-radius: 999px; padding: 10px 13px; color: #555; font-size: 12px; font-weight: 800; box-shadow: 0 4px 16px rgba(0,0,0,.08); pointer-events: none; }
+.tileMapPoint.cluster { background: #111; border-color: #fff; }
+.tileMapPoint.cluster span { font-size: 12px; }
 
 @media (max-width: 1000px) {
   .activitySearchRow {
