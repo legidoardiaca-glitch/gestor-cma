@@ -433,6 +433,17 @@ function normalizeRow(row) {
     aforament: String(row.aforament || ""),
     entradetaCat: String(row.entradetaCat || ""),
     voluntaris: normalizeBool(row.voluntaris),
+    idiomaCatala: normalizeBool(row.idiomaCatala),
+    idiomaCastella: normalizeBool(row.idiomaCastella),
+    idiomaAngles: normalizeBool(row.idiomaAngles),
+    idiomaFrances: normalizeBool(row.idiomaFrances),
+    accessRadioGuia: normalizeBool(row.accessRadioGuia),
+    accessSubtitulacio: normalizeBool(row.accessSubtitulacio),
+    accessLlenguaSignes: normalizeBool(row.accessLlenguaSignes),
+    accessBraille: normalizeBool(row.accessBraille),
+    accessLecturaFacil: normalizeBool(row.accessLecturaFacil),
+    accessMobilitatReduida: normalizeBool(row.accessMobilitatReduida),
+    accessDetalls: String(row.accessDetalls || ""),
   };
 }
 
@@ -679,6 +690,58 @@ function BrandMark({ className = "" }) {
   );
 }
 
+
+function getVisibleNavItems(role) {
+  const normalizedRole = String(role || "").toLowerCase();
+
+  const allItems = [
+    ["dashboard", "Dashboard"],
+    ["direccio", "Direcció"],
+    ["activitats", "Activitats"],
+    ["propostes", "Propostes"],
+    ["calendari", "Calendari"],
+    ["espais", "Espais"],
+    ["inscripcions", "Dades inscripcions"],
+  ];
+
+  if (normalizedRole === "admin") return allItems;
+
+  if (normalizedRole === "direccio") {
+    return allItems;
+  }
+
+  if (normalizedRole === "editor") {
+    return allItems.filter(([id]) => ["activitats", "propostes", "calendari", "espais"].includes(id));
+  }
+
+  if (normalizedRole === "cap_projecte") {
+    return allItems.filter(([id]) => ["activitats", "propostes", "calendari", "espais"].includes(id));
+  }
+
+  return allItems.filter(([id]) => ["activitats", "calendari", "espais"].includes(id));
+}
+
+function getDefaultViewForRole(role) {
+  const items = getVisibleNavItems(role);
+  return items[0]?.[0] || "activitats";
+}
+
+function canSeeView(role, view) {
+  return getVisibleNavItems(role).some(([id]) => id === view);
+}
+
+function formatRoleLabel(role) {
+  const labels = {
+    direccio: "Direcció",
+    editor: "Editor/a",
+    cap_projecte: "Cap projecte",
+    admin: "Admin",
+  };
+
+  return labels[role] || role || "Usuari";
+}
+
+
 function Shell({ children, view, setView, rows, status, userName, role, onLogout }) {
   return (
     <main className="app">
@@ -686,14 +749,7 @@ function Shell({ children, view, setView, rows, status, userName, role, onLogout
         <BrandMark />
 
         <nav>
-          {[
-            ["dashboard", "Dashboard"],
-            ["activitats", "Activitats"],
-            ["propostes", "Propostes"],
-            ["calendari", "Calendari"],
-            ["espais", "Espais"],
-            ["inscripcions", "Dades inscripcions"],
-          ].map(([id, label]) => (
+          {getVisibleNavItems(role).map(([id, label]) => (
             <button key={id} onClick={() => setView(id)} className={view === id ? "active" : ""}>
               {label}
             </button>
@@ -706,7 +762,7 @@ function Shell({ children, view, setView, rows, status, userName, role, onLogout
           <span>registres carregats</span>
           <div className="userBox">
             <b>{userName}</b>
-            <small>{role}</small>
+            <small>{formatRoleLabel(role)}</small>
             <button onClick={onLogout}>Canviar usuari</button>
           </div>
         </div>
@@ -2193,6 +2249,240 @@ function SpaceDetail({ space, onOpenActivity, espaisLoaded = true }) {
 
 
 
+
+function getQualityIssues(row, inscriptionCountByIdWeb = {}) {
+  const issues = [];
+
+  if (!row.dataInici) issues.push("Sense data");
+  if (!row.idWeb) issues.push("Sense ID WEB");
+  if (!row.espai) issues.push("Sense espai");
+  if (!row.imatge) issues.push("Sense imatge");
+  if (!row.titolWeb && !row.titol) issues.push("Sense títol");
+  if (!row.entradetaCat) issues.push("Sense entradeta CAT");
+
+  if (row.idWeb && !inscriptionCountByIdWeb[row.idWeb]) {
+    issues.push("Sense inscripcions");
+  }
+
+  if (!row.idiomaAngles) {
+    issues.push("Sense anglès");
+  }
+
+  const hasAccessibility =
+    row.accessRadioGuia ||
+    row.accessSubtitulacio ||
+    row.accessLlenguaSignes ||
+    row.accessBraille ||
+    row.accessLecturaFacil ||
+    row.accessMobilitatReduida ||
+    Boolean(row.accessDetalls);
+
+  if (!hasAccessibility) {
+    issues.push("Sense accessibilitat");
+  }
+
+  return issues;
+}
+
+function DireccioView({ rows, inscripcions, setView, setSelectedActivityId }) {
+  const [selectedIssue, setSelectedIssue] = useState("all");
+  const [query, setQuery] = useState("");
+
+  const inscriptionCountByIdWeb = useMemo(() => {
+    return inscripcions.reduce((acc, row) => {
+      if (!row.idWeb) return acc;
+      acc[row.idWeb] = (acc[row.idWeb] || 0) + 1;
+      return acc;
+    }, {});
+  }, [inscripcions]);
+
+  const qualityRows = useMemo(() => {
+    return rows
+      .map((row) => {
+        const issues = getQualityIssues(row, inscriptionCountByIdWeb);
+        const totalChecks = 9;
+        const score = Math.max(0, Math.round(((totalChecks - issues.length) / totalChecks) * 100));
+
+        return {
+          row,
+          issues,
+          score,
+        };
+      })
+      .filter((item) => item.issues.length > 0);
+  }, [rows, inscriptionCountByIdWeb]);
+
+  const issueTypes = useMemo(() => {
+    const counts = qualityRows.reduce((acc, item) => {
+      item.issues.forEach((issue) => {
+        acc[issue] = (acc[issue] || 0) + 1;
+      });
+      return acc;
+    }, {});
+
+    return Object.entries(counts)
+      .map(([label, count]) => ({ id: label, label, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [qualityRows]);
+
+  const filteredIssues = useMemo(() => {
+    return qualityRows.filter((item) => {
+      const row = item.row;
+      const text = [
+        row.id,
+        row.idIntern,
+        row.idWeb,
+        row.titolWeb,
+        row.titol,
+        row.espai,
+        row.categoria,
+        row.districte,
+        row.encarregada,
+        item.issues.join(" "),
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      const matchesQuery = text.includes(query.toLowerCase());
+      const matchesIssue = selectedIssue === "all" || item.issues.includes(selectedIssue);
+
+      return matchesQuery && matchesIssue;
+    });
+  }, [qualityRows, query, selectedIssue]);
+
+  const averageScore = qualityRows.length
+    ? Math.round(qualityRows.reduce((sum, item) => sum + item.score, 0) / qualityRows.length)
+    : 100;
+
+  function openActivity(row) {
+    setSelectedActivityId(row._row || row.idIntern);
+    setView("activitats");
+  }
+
+  return (
+    <>
+      <Top
+        title="Direcció"
+        subtitle="Control executiu de qualitat de dades: camps buits, fitxes incompletes i activitats que cal revisar."
+      />
+
+      <div className="stats dashboardStats">
+        <KpiCard icon="✓" tone="green" label="Completitud mitjana" value={`${averageScore}%`} />
+        <KpiCard icon="⚠️" tone="peach" label="Activitats amb avisos" value={qualityRows.length} />
+        <KpiCard icon="🖼️" tone="yellow" label="Sense imatge" value={issueTypes.find((i) => i.id === "Sense imatge")?.count || 0} />
+        <KpiCard icon="📍" tone="purple" label="Sense espai" value={issueTypes.find((i) => i.id === "Sense espai")?.count || 0} />
+        <KpiCard icon="👥" tone="blue" label="Sense inscripcions" value={issueTypes.find((i) => i.id === "Sense inscripcions")?.count || 0} />
+      </div>
+
+      <div className="toolbar activitiesToolbar directionToolbar">
+        <div className="activitySearchRow">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar per ID, títol, espai, categoria, encarregada o avís..."
+          />
+          <div className="resultsCounter">
+            <strong>{filteredIssues.length}</strong>
+            <span>{filteredIssues.length === 1 ? "fitxa" : "fitxes"}</span>
+          </div>
+        </div>
+
+        <div className="chips directionIssueChips">
+          <button
+            onClick={() => setSelectedIssue("all")}
+            className={selectedIssue === "all" ? "selected" : ""}
+          >
+            Tots els avisos
+          </button>
+
+          {issueTypes.map((issue) => (
+            <button
+              key={issue.id}
+              onClick={() => setSelectedIssue(issue.id)}
+              className={selectedIssue === issue.id ? "selected" : ""}
+            >
+              {issue.label} · {issue.count}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="directionGrid">
+        <section className="chartCard directionSummary">
+          <div className="chartCardHeader">
+            <div className="chartTitle">
+              <span>⚠</span>
+              <h2>Resum d’avisos</h2>
+            </div>
+            <span className="chartTotal">{issueTypes.length} tipus</span>
+          </div>
+
+          <div className="compactRankList">
+            {issueTypes.map((issue) => {
+              const max = Math.max(...issueTypes.map((item) => item.count), 1);
+
+              return (
+                <div className="compactRankRow" key={issue.id}>
+                  <div className="compactRankTop">
+                    <span>{issue.label}</span>
+                    <b>{issue.count}</b>
+                  </div>
+                  <div className="compactRankTrack">
+                    <i style={{ width: `${(issue.count / max) * 100}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="chartCard directionListCard">
+          <div className="chartCardHeader">
+            <div className="chartTitle">
+              <span>▤</span>
+              <h2>Fitxes a revisar</h2>
+            </div>
+            <span className="chartTotal">{filteredIssues.length} resultats</span>
+          </div>
+
+          <div className="directionIssueList">
+            {filteredIssues.slice(0, 80).map(({ row, issues, score }) => (
+              <button
+                key={`${row.idIntern}-${row._row}`}
+                type="button"
+                className="directionIssueItem"
+                onClick={() => openActivity(row)}
+              >
+                <div className="directionIssueMain">
+                  <div className="badges">
+                    <Badge>{row.idIntern || row.idWeb || "Sense ID"}</Badge>
+                    <Badge>{row.encarregada || "Sense encarregada"}</Badge>
+                    <Badge>{score}% complet</Badge>
+                  </div>
+                  <h3>{row.titolWeb || row.titol || "Sense títol"}</h3>
+                  <p>{row.espai || "Sense espai"} · {row.districte || "Sense districte"} · {row.categoria || "Sense categoria"}</p>
+                </div>
+
+                <div className="directionIssueTags">
+                  {issues.slice(0, 5).map((issue) => (
+                    <span key={issue}>{issue}</span>
+                  ))}
+                  {issues.length > 5 && <span>+{issues.length - 5}</span>}
+                </div>
+              </button>
+            ))}
+
+            {filteredIssues.length === 0 && (
+              <div className="notice success">No hi ha fitxes amb aquests criteris. Tot net.</div>
+            )}
+          </div>
+        </section>
+      </div>
+    </>
+  );
+}
+
+
 function DashboardView({ rows, inscripcions = [] }) {
   const dashboardRef = useRef(null);
   const [exporting, setExporting] = useState(false);
@@ -3206,6 +3496,17 @@ function App() {
               aforament: row.aforment || row.aforament,
               entradetaCat: row.entradeta_cat,
               voluntaris: row.necesito_voluntaris,
+              idiomaCatala: row.idioma_catala,
+              idiomaCastella: row.idioma_castella,
+              idiomaAngles: row.idioma_angles,
+              idiomaFrances: row.idioma_frances,
+              accessRadioGuia: row.accesibilitat_radioguia,
+              accessSubtitulacio: row.accesibilitat_subtitulacio,
+              accessLlenguaSignes: row.accesibilitat_llengua_de_signes,
+              accessBraille: row.accesibilitat_braille,
+              accessLecturaFacil: row.accesibilitat_lectura_facil,
+              accessMobilitatReduida: row.accesibilitat_accessible_per_persones_amb_mobilitat_reduida,
+              accessDetalls: row.accessibilitat_detalls,
             })
           );
 
@@ -3252,7 +3553,10 @@ function App() {
           setUserName={setUserName}
           role={role}
           setRole={setRole}
-          onEnter={() => setAuthenticated(true)}
+          onEnter={() => {
+            setView(getDefaultViewForRole(role));
+            setAuthenticated(true);
+          }}
         />
         <style>{css}</style>
       </>
@@ -3273,7 +3577,18 @@ function App() {
         onLogout={() => setAuthenticated(false)}
       >
         {error && <div className="notice">⚠ {error}</div>}
+        {!canSeeView(role, view) && (
+          <div className="notice">Aquest perfil no té accés a aquesta vista. Selecciona una pestanya disponible al menú lateral.</div>
+        )}
         {view === "dashboard" && <DashboardView rows={rows} inscripcions={inscripcions} />}
+        {view === "direccio" && canSeeView(role, "direccio") && (
+          <DireccioView
+            rows={rows}
+            inscripcions={inscripcions}
+            setView={setView}
+            setSelectedActivityId={setSelectedActivityId}
+          />
+        )}
         {view === "activitats" && (
           <ActivitiesView
             rows={rows}
@@ -3616,6 +3931,19 @@ p { color: #666; }
   filter: grayscale(.08) saturate(.55) brightness(1.05) contrast(.96);
 }
 
+
+.directionGrid { display: grid; grid-template-columns: 420px 1fr; gap: 18px; align-items: start; }
+.directionSummary { position: sticky; top: 28px; }
+.directionIssueChips { margin-top: 12px; }
+.directionIssueList { display: flex; flex-direction: column; gap: 11px; max-height: calc(100vh - 330px); overflow: auto; padding-right: 4px; }
+.directionIssueItem { border: 1px solid #e3e3df; background: #fff; border-radius: 18px; padding: 14px; text-align: left; display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 14px; transition: .15s ease; }
+.directionIssueItem:hover { border-color: #111; transform: translateY(-1px); }
+.directionIssueMain h3 { margin: 0 0 5px; font-size: 16px; line-height: 1.2; }
+.directionIssueMain p { margin: 0; font-size: 13px; }
+.directionIssueTags { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; align-content: flex-start; }
+.directionIssueTags span { background: #fff0d6; border: 1px solid #f0d7a5; color: #8a5700; border-radius: 999px; padding: 5px 8px; font-size: 11px; font-weight: 900; }
+.directionToolbar { margin-bottom: 18px; }
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -3627,6 +3955,12 @@ p { color: #666; }
   .spacesLayout { grid-template-columns: 1fr; }
   .spacesList { max-height: none; }
   .spaceDetailPanel { max-height: none; }
+
+  .directionGrid { grid-template-columns: 1fr; }
+  .directionSummary { position: static; }
+  .directionIssueList { max-height: none; }
+  .directionIssueItem { grid-template-columns: 1fr; }
+  .directionIssueTags { justify-content: flex-start; }
 
   .spacesMapLayout { grid-template-columns: 1fr; }
   .spacesMapPanel { position: static; }
@@ -3881,6 +4215,19 @@ p { color: #666; }
 .tileMapTile {
   filter: grayscale(.08) saturate(.55) brightness(1.05) contrast(.96);
 }
+
+
+.directionGrid { display: grid; grid-template-columns: 420px 1fr; gap: 18px; align-items: start; }
+.directionSummary { position: sticky; top: 28px; }
+.directionIssueChips { margin-top: 12px; }
+.directionIssueList { display: flex; flex-direction: column; gap: 11px; max-height: calc(100vh - 330px); overflow: auto; padding-right: 4px; }
+.directionIssueItem { border: 1px solid #e3e3df; background: #fff; border-radius: 18px; padding: 14px; text-align: left; display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 14px; transition: .15s ease; }
+.directionIssueItem:hover { border-color: #111; transform: translateY(-1px); }
+.directionIssueMain h3 { margin: 0 0 5px; font-size: 16px; line-height: 1.2; }
+.directionIssueMain p { margin: 0; font-size: 13px; }
+.directionIssueTags { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; align-content: flex-start; }
+.directionIssueTags span { background: #fff0d6; border: 1px solid #f0d7a5; color: #8a5700; border-radius: 999px; padding: 5px 8px; font-size: 11px; font-weight: 900; }
+.directionToolbar { margin-bottom: 18px; }
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -4262,6 +4609,19 @@ p { color: #666; }
 .tileMapTile {
   filter: grayscale(.08) saturate(.55) brightness(1.05) contrast(.96);
 }
+
+
+.directionGrid { display: grid; grid-template-columns: 420px 1fr; gap: 18px; align-items: start; }
+.directionSummary { position: sticky; top: 28px; }
+.directionIssueChips { margin-top: 12px; }
+.directionIssueList { display: flex; flex-direction: column; gap: 11px; max-height: calc(100vh - 330px); overflow: auto; padding-right: 4px; }
+.directionIssueItem { border: 1px solid #e3e3df; background: #fff; border-radius: 18px; padding: 14px; text-align: left; display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 14px; transition: .15s ease; }
+.directionIssueItem:hover { border-color: #111; transform: translateY(-1px); }
+.directionIssueMain h3 { margin: 0 0 5px; font-size: 16px; line-height: 1.2; }
+.directionIssueMain p { margin: 0; font-size: 13px; }
+.directionIssueTags { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; align-content: flex-start; }
+.directionIssueTags span { background: #fff0d6; border: 1px solid #f0d7a5; color: #8a5700; border-radius: 999px; padding: 5px 8px; font-size: 11px; font-weight: 900; }
+.directionToolbar { margin-bottom: 18px; }
 
 @media (max-width: 1000px) {
   .activitySearchRow {
