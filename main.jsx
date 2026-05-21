@@ -24,16 +24,16 @@ const ESPAIS_CSV_URL =
   "https://docs.google.com/spreadsheets/d/e/2PACX-1vRWPBpxuBECSh1kLS1Vm-gdmOQhWw6_aBUUsjrX3wMZlaL17IsIkhFrSa8ovmbMR-uFL07SeX5ClGOM/pub?gid=1125496422&single=true&output=csv";
 
 const CHART_COLORS = [
-  "#2f6fdd",
-  "#de7a3b",
-  "#4aa79c",
-  "#8b74d6",
-  "#e7b84e",
-  "#e6b7ad",
-  "#8cb7dc",
-  "#b8b8b8",
-  "#6f8f72",
-  "#9b6f8f",
+  "#5AA9E6",
+  "#7FC8F8",
+  "#FFE45E",
+  "#FF6392",
+  "#B9FBC0",
+  "#F9C6D1",
+  "#CDB4DB",
+  "#A2D2FF",
+  "#FDFFB6",
+  "#BDE0FE",
 ];
 
 function downloadDataUrl(dataUrl, fileName) {
@@ -4806,6 +4806,187 @@ p { color: #666; }
 .liveEmpty { background: #fff; border: 1px dashed #ddd; border-radius: 16px; padding: 18px; color: #666; font-weight: 800; }
 .liveBlock.featured .liveEmpty { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.18); color: rgba(255,255,255,.7); }
 
+
+:root {
+  --cma-cool-sky: #5AA9E6;
+  --cma-sky-blue: #7FC8F8;
+  --cma-bright-snow: #F9F9F9;
+  --cma-royal-gold: #FFE45E;
+  --cma-rose-kiss: #FF6392;
+  --cma-ink: #111111;
+  --cma-soft-border: #dedede;
+}
+
+body {
+  background:
+    radial-gradient(circle at 12% 8%, rgba(127, 200, 248, .22), transparent 26%),
+    radial-gradient(circle at 88% 3%, rgba(255, 99, 146, .16), transparent 24%),
+    radial-gradient(circle at 70% 88%, rgba(255, 228, 94, .17), transparent 26%),
+    var(--cma-bright-snow);
+}
+
+.sidebar {
+  background: rgba(255,255,255,.86);
+  backdrop-filter: blur(18px);
+}
+
+.sidebar nav button.active {
+  background: linear-gradient(135deg, var(--cma-cool-sky), var(--cma-sky-blue));
+  color: #fff;
+}
+
+.sidebar nav button:hover {
+  background: rgba(90, 169, 230, .12);
+}
+
+.kpiIcon.blue { background: rgba(90,169,230,.22); color: #1f78b7; }
+.kpiIcon.green { background: rgba(185,251,192,.42); color: #23703a; }
+.kpiIcon.purple { background: rgba(205,180,219,.42); color: #6f4c84; }
+.kpiIcon.yellow { background: rgba(255,228,94,.42); color: #8a6a00; }
+.kpiIcon.peach { background: rgba(255,99,146,.22); color: #b72d61; }
+
+.resultsCounter,
+.dateRangePill,
+.todayPill,
+.chartTotal,
+.badge,
+.liveNowBadge,
+.dataScopeControl,
+.agendaHero,
+.weeklyProgramHeader {
+  box-shadow: 0 8px 26px rgba(90,169,230,.08);
+}
+
+.resultsCounter {
+  background: #111;
+  color: #fff;
+}
+
+.chips button.selected,
+.tabs button.active,
+.exportButtons button:hover,
+.weeklyProgramActions button:hover,
+.weeklyExportButtons button:hover,
+.activityExportControls button:hover {
+  background: linear-gradient(135deg, var(--cma-cool-sky), var(--cma-rose-kiss));
+  color: #fff;
+  border-color: transparent;
+}
+
+.chartCard,
+.kpiCard,
+.toolbar,
+.panel,
+.spaceCard,
+.agendaSection,
+.weeklyProgramControls,
+.weeklyProgramExportArea,
+.barcelonaLivePanel,
+.dashboardFilterPanel {
+  border-color: rgba(17,17,17,.10);
+  box-shadow: 0 10px 28px rgba(17,17,17,.035);
+}
+
+.chartCardHeader .chartTitle span {
+  background: rgba(127,200,248,.18);
+  color: #1f78b7;
+  border-radius: 999px;
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+}
+
+.barcelonaLivePanel {
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.96), rgba(249,249,249,.96)),
+    radial-gradient(circle at 10% 0%, rgba(127,200,248,.22), transparent 32%),
+    radial-gradient(circle at 100% 12%, rgba(255,99,146,.16), transparent 30%);
+}
+
+.liveNowBadge,
+.dataScopeControl,
+.agendaHero,
+.weeklyProgramHeader,
+.liveBlock.featured {
+  background:
+    radial-gradient(circle at 12% 20%, rgba(90,169,230,.36), transparent 34%),
+    radial-gradient(circle at 90% 5%, rgba(255,99,146,.32), transparent 31%),
+    #111;
+}
+
+.liveKpis div:nth-child(1),
+.agendaAlert.ok,
+.compactPills span:nth-child(4n+1) {
+  background: rgba(90,169,230,.14);
+}
+
+.liveKpis div:nth-child(2),
+.compactPills span:nth-child(4n+2) {
+  background: rgba(127,200,248,.18);
+}
+
+.liveKpis div:nth-child(3),
+.agendaAlert.review,
+.compactPills span:nth-child(4n+3) {
+  background: rgba(255,228,94,.22);
+}
+
+.liveKpis div:nth-child(4),
+.agendaAlert.critical,
+.compactPills span:nth-child(4n+4) {
+  background: rgba(255,99,146,.16);
+}
+
+.tileMapPoint {
+  background: var(--cma-rose-kiss);
+}
+
+.tileMapPoint.cluster {
+  background: var(--cma-cool-sky);
+}
+
+.compactRankTrack i,
+.districtGapBars i {
+  background: linear-gradient(90deg, var(--cma-cool-sky), var(--cma-sky-blue)) !important;
+}
+
+.districtGapBars b {
+  background: linear-gradient(90deg, var(--cma-royal-gold), var(--cma-rose-kiss)) !important;
+}
+
+.agendaStatus.critical,
+.directionIssueTags span,
+.agendaIssueTags span {
+  background: rgba(255,99,146,.14);
+  border-color: rgba(255,99,146,.28);
+  color: #9f1f50;
+}
+
+.agendaStatus.review {
+  background: rgba(255,228,94,.24);
+  color: #7d6200;
+}
+
+.agendaStatus.ok {
+  background: rgba(185,251,192,.38);
+  color: #1e6b36;
+}
+
+.weeklyProgramItem:hover,
+.agendaItem:hover,
+.directionIssueItem:hover,
+.spaceCard:hover {
+  border-color: var(--cma-cool-sky);
+  box-shadow: 0 10px 24px rgba(90,169,230,.13);
+}
+
+.weeklyProgramHeader .brand,
+.agendaHero .eyebrow,
+.barcelonaLivePanel .eyebrow {
+  color: #fff;
+}
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -5229,6 +5410,187 @@ p { color: #666; }
 .nextActivityCard .agendaMeta { color: rgba(255,255,255,.75); }
 .liveEmpty { background: #fff; border: 1px dashed #ddd; border-radius: 16px; padding: 18px; color: #666; font-weight: 800; }
 .liveBlock.featured .liveEmpty { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.18); color: rgba(255,255,255,.7); }
+
+
+:root {
+  --cma-cool-sky: #5AA9E6;
+  --cma-sky-blue: #7FC8F8;
+  --cma-bright-snow: #F9F9F9;
+  --cma-royal-gold: #FFE45E;
+  --cma-rose-kiss: #FF6392;
+  --cma-ink: #111111;
+  --cma-soft-border: #dedede;
+}
+
+body {
+  background:
+    radial-gradient(circle at 12% 8%, rgba(127, 200, 248, .22), transparent 26%),
+    radial-gradient(circle at 88% 3%, rgba(255, 99, 146, .16), transparent 24%),
+    radial-gradient(circle at 70% 88%, rgba(255, 228, 94, .17), transparent 26%),
+    var(--cma-bright-snow);
+}
+
+.sidebar {
+  background: rgba(255,255,255,.86);
+  backdrop-filter: blur(18px);
+}
+
+.sidebar nav button.active {
+  background: linear-gradient(135deg, var(--cma-cool-sky), var(--cma-sky-blue));
+  color: #fff;
+}
+
+.sidebar nav button:hover {
+  background: rgba(90, 169, 230, .12);
+}
+
+.kpiIcon.blue { background: rgba(90,169,230,.22); color: #1f78b7; }
+.kpiIcon.green { background: rgba(185,251,192,.42); color: #23703a; }
+.kpiIcon.purple { background: rgba(205,180,219,.42); color: #6f4c84; }
+.kpiIcon.yellow { background: rgba(255,228,94,.42); color: #8a6a00; }
+.kpiIcon.peach { background: rgba(255,99,146,.22); color: #b72d61; }
+
+.resultsCounter,
+.dateRangePill,
+.todayPill,
+.chartTotal,
+.badge,
+.liveNowBadge,
+.dataScopeControl,
+.agendaHero,
+.weeklyProgramHeader {
+  box-shadow: 0 8px 26px rgba(90,169,230,.08);
+}
+
+.resultsCounter {
+  background: #111;
+  color: #fff;
+}
+
+.chips button.selected,
+.tabs button.active,
+.exportButtons button:hover,
+.weeklyProgramActions button:hover,
+.weeklyExportButtons button:hover,
+.activityExportControls button:hover {
+  background: linear-gradient(135deg, var(--cma-cool-sky), var(--cma-rose-kiss));
+  color: #fff;
+  border-color: transparent;
+}
+
+.chartCard,
+.kpiCard,
+.toolbar,
+.panel,
+.spaceCard,
+.agendaSection,
+.weeklyProgramControls,
+.weeklyProgramExportArea,
+.barcelonaLivePanel,
+.dashboardFilterPanel {
+  border-color: rgba(17,17,17,.10);
+  box-shadow: 0 10px 28px rgba(17,17,17,.035);
+}
+
+.chartCardHeader .chartTitle span {
+  background: rgba(127,200,248,.18);
+  color: #1f78b7;
+  border-radius: 999px;
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+}
+
+.barcelonaLivePanel {
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.96), rgba(249,249,249,.96)),
+    radial-gradient(circle at 10% 0%, rgba(127,200,248,.22), transparent 32%),
+    radial-gradient(circle at 100% 12%, rgba(255,99,146,.16), transparent 30%);
+}
+
+.liveNowBadge,
+.dataScopeControl,
+.agendaHero,
+.weeklyProgramHeader,
+.liveBlock.featured {
+  background:
+    radial-gradient(circle at 12% 20%, rgba(90,169,230,.36), transparent 34%),
+    radial-gradient(circle at 90% 5%, rgba(255,99,146,.32), transparent 31%),
+    #111;
+}
+
+.liveKpis div:nth-child(1),
+.agendaAlert.ok,
+.compactPills span:nth-child(4n+1) {
+  background: rgba(90,169,230,.14);
+}
+
+.liveKpis div:nth-child(2),
+.compactPills span:nth-child(4n+2) {
+  background: rgba(127,200,248,.18);
+}
+
+.liveKpis div:nth-child(3),
+.agendaAlert.review,
+.compactPills span:nth-child(4n+3) {
+  background: rgba(255,228,94,.22);
+}
+
+.liveKpis div:nth-child(4),
+.agendaAlert.critical,
+.compactPills span:nth-child(4n+4) {
+  background: rgba(255,99,146,.16);
+}
+
+.tileMapPoint {
+  background: var(--cma-rose-kiss);
+}
+
+.tileMapPoint.cluster {
+  background: var(--cma-cool-sky);
+}
+
+.compactRankTrack i,
+.districtGapBars i {
+  background: linear-gradient(90deg, var(--cma-cool-sky), var(--cma-sky-blue)) !important;
+}
+
+.districtGapBars b {
+  background: linear-gradient(90deg, var(--cma-royal-gold), var(--cma-rose-kiss)) !important;
+}
+
+.agendaStatus.critical,
+.directionIssueTags span,
+.agendaIssueTags span {
+  background: rgba(255,99,146,.14);
+  border-color: rgba(255,99,146,.28);
+  color: #9f1f50;
+}
+
+.agendaStatus.review {
+  background: rgba(255,228,94,.24);
+  color: #7d6200;
+}
+
+.agendaStatus.ok {
+  background: rgba(185,251,192,.38);
+  color: #1e6b36;
+}
+
+.weeklyProgramItem:hover,
+.agendaItem:hover,
+.directionIssueItem:hover,
+.spaceCard:hover {
+  border-color: var(--cma-cool-sky);
+  box-shadow: 0 10px 24px rgba(90,169,230,.13);
+}
+
+.weeklyProgramHeader .brand,
+.agendaHero .eyebrow,
+.barcelonaLivePanel .eyebrow {
+  color: #fff;
+}
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -5741,6 +6103,187 @@ p { color: #666; }
 .nextActivityCard .agendaMeta { color: rgba(255,255,255,.75); }
 .liveEmpty { background: #fff; border: 1px dashed #ddd; border-radius: 16px; padding: 18px; color: #666; font-weight: 800; }
 .liveBlock.featured .liveEmpty { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.18); color: rgba(255,255,255,.7); }
+
+
+:root {
+  --cma-cool-sky: #5AA9E6;
+  --cma-sky-blue: #7FC8F8;
+  --cma-bright-snow: #F9F9F9;
+  --cma-royal-gold: #FFE45E;
+  --cma-rose-kiss: #FF6392;
+  --cma-ink: #111111;
+  --cma-soft-border: #dedede;
+}
+
+body {
+  background:
+    radial-gradient(circle at 12% 8%, rgba(127, 200, 248, .22), transparent 26%),
+    radial-gradient(circle at 88% 3%, rgba(255, 99, 146, .16), transparent 24%),
+    radial-gradient(circle at 70% 88%, rgba(255, 228, 94, .17), transparent 26%),
+    var(--cma-bright-snow);
+}
+
+.sidebar {
+  background: rgba(255,255,255,.86);
+  backdrop-filter: blur(18px);
+}
+
+.sidebar nav button.active {
+  background: linear-gradient(135deg, var(--cma-cool-sky), var(--cma-sky-blue));
+  color: #fff;
+}
+
+.sidebar nav button:hover {
+  background: rgba(90, 169, 230, .12);
+}
+
+.kpiIcon.blue { background: rgba(90,169,230,.22); color: #1f78b7; }
+.kpiIcon.green { background: rgba(185,251,192,.42); color: #23703a; }
+.kpiIcon.purple { background: rgba(205,180,219,.42); color: #6f4c84; }
+.kpiIcon.yellow { background: rgba(255,228,94,.42); color: #8a6a00; }
+.kpiIcon.peach { background: rgba(255,99,146,.22); color: #b72d61; }
+
+.resultsCounter,
+.dateRangePill,
+.todayPill,
+.chartTotal,
+.badge,
+.liveNowBadge,
+.dataScopeControl,
+.agendaHero,
+.weeklyProgramHeader {
+  box-shadow: 0 8px 26px rgba(90,169,230,.08);
+}
+
+.resultsCounter {
+  background: #111;
+  color: #fff;
+}
+
+.chips button.selected,
+.tabs button.active,
+.exportButtons button:hover,
+.weeklyProgramActions button:hover,
+.weeklyExportButtons button:hover,
+.activityExportControls button:hover {
+  background: linear-gradient(135deg, var(--cma-cool-sky), var(--cma-rose-kiss));
+  color: #fff;
+  border-color: transparent;
+}
+
+.chartCard,
+.kpiCard,
+.toolbar,
+.panel,
+.spaceCard,
+.agendaSection,
+.weeklyProgramControls,
+.weeklyProgramExportArea,
+.barcelonaLivePanel,
+.dashboardFilterPanel {
+  border-color: rgba(17,17,17,.10);
+  box-shadow: 0 10px 28px rgba(17,17,17,.035);
+}
+
+.chartCardHeader .chartTitle span {
+  background: rgba(127,200,248,.18);
+  color: #1f78b7;
+  border-radius: 999px;
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+}
+
+.barcelonaLivePanel {
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.96), rgba(249,249,249,.96)),
+    radial-gradient(circle at 10% 0%, rgba(127,200,248,.22), transparent 32%),
+    radial-gradient(circle at 100% 12%, rgba(255,99,146,.16), transparent 30%);
+}
+
+.liveNowBadge,
+.dataScopeControl,
+.agendaHero,
+.weeklyProgramHeader,
+.liveBlock.featured {
+  background:
+    radial-gradient(circle at 12% 20%, rgba(90,169,230,.36), transparent 34%),
+    radial-gradient(circle at 90% 5%, rgba(255,99,146,.32), transparent 31%),
+    #111;
+}
+
+.liveKpis div:nth-child(1),
+.agendaAlert.ok,
+.compactPills span:nth-child(4n+1) {
+  background: rgba(90,169,230,.14);
+}
+
+.liveKpis div:nth-child(2),
+.compactPills span:nth-child(4n+2) {
+  background: rgba(127,200,248,.18);
+}
+
+.liveKpis div:nth-child(3),
+.agendaAlert.review,
+.compactPills span:nth-child(4n+3) {
+  background: rgba(255,228,94,.22);
+}
+
+.liveKpis div:nth-child(4),
+.agendaAlert.critical,
+.compactPills span:nth-child(4n+4) {
+  background: rgba(255,99,146,.16);
+}
+
+.tileMapPoint {
+  background: var(--cma-rose-kiss);
+}
+
+.tileMapPoint.cluster {
+  background: var(--cma-cool-sky);
+}
+
+.compactRankTrack i,
+.districtGapBars i {
+  background: linear-gradient(90deg, var(--cma-cool-sky), var(--cma-sky-blue)) !important;
+}
+
+.districtGapBars b {
+  background: linear-gradient(90deg, var(--cma-royal-gold), var(--cma-rose-kiss)) !important;
+}
+
+.agendaStatus.critical,
+.directionIssueTags span,
+.agendaIssueTags span {
+  background: rgba(255,99,146,.14);
+  border-color: rgba(255,99,146,.28);
+  color: #9f1f50;
+}
+
+.agendaStatus.review {
+  background: rgba(255,228,94,.24);
+  color: #7d6200;
+}
+
+.agendaStatus.ok {
+  background: rgba(185,251,192,.38);
+  color: #1e6b36;
+}
+
+.weeklyProgramItem:hover,
+.agendaItem:hover,
+.directionIssueItem:hover,
+.spaceCard:hover {
+  border-color: var(--cma-cool-sky);
+  box-shadow: 0 10px 24px rgba(90,169,230,.13);
+}
+
+.weeklyProgramHeader .brand,
+.agendaHero .eyebrow,
+.barcelonaLivePanel .eyebrow {
+  color: #fff;
+}
 
 @media (max-width: 1000px) {
   .activitySearchRow {
