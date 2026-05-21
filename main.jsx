@@ -2246,8 +2246,6 @@ function TileSpacesMap({ spaces, selected, setSelectedName }) {
   }
 
   function handleWheel(event) {
-    if (!event.ctrlKey) return;
-
     event.preventDefault();
 
     const direction = event.deltaY < 0 ? 1 : -1;
@@ -2270,7 +2268,7 @@ function TileSpacesMap({ spaces, selected, setSelectedName }) {
   return (
     <div className="tileMapShell">
       <div className="tileMapCtrlHint">
-        <b>Ctrl</b> + roda per fer zoom · <b>Ctrl</b> + arrossegar per moure
+        Roda per fer zoom · <b>Ctrl</b> + arrossegar per moure
       </div>
 
       <div
@@ -3012,6 +3010,65 @@ function getNowMinutes() {
   return now.getHours() * 60 + now.getMinutes();
 }
 
+
+function Barcelona2026Welcome({ rows }) {
+  const today = toLocalISODate(new Date());
+  const nowMinutes = getNowMinutes();
+
+  const todayRows = useMemo(() => {
+    return rows.filter((row) => row.dataInici === today);
+  }, [rows, today]);
+
+  const nextActivity = useMemo(() => {
+    return rows
+      .filter((row) => isValidDateString(row.dataInici))
+      .filter((row) => {
+        if (row.dataInici > today) return true;
+        if (row.dataInici < today) return false;
+
+        const start = parseTimeToMinutes(row.horaInici);
+        return start === null || start >= nowMinutes;
+      })
+      .sort((a, b) =>
+        `${a.dataInici || "9999-99-99"} ${a.horaInici || "99:99"}`.localeCompare(
+          `${b.dataInici || "9999-99-99"} ${b.horaInici || "99:99"}`
+        )
+      )[0];
+  }, [rows, today, nowMinutes]);
+
+  const greeting = (() => {
+    const hour = new Date().getHours();
+    if (hour < 13) return "Bon dia";
+    if (hour < 20) return "Bona tarda";
+    return "Bona nit";
+  })();
+
+  const nextText = nextActivity
+    ? `${nextActivity.horaInici || "—"} · ${nextActivity.titolWeb || nextActivity.titol || "Pròxima activitat"}`
+    : "No hi ha pròximes activitats amb data.";
+
+  return (
+    <section className="barcelona2026Welcome">
+      <div>
+        <p className="eyebrow">Mode Barcelona 2026</p>
+        <h2>{greeting}, benvingut/da al Gestor CMA</h2>
+        <p>
+          Avui Barcelona té <strong>{todayRows.length}</strong> activitats en{" "}
+          <strong>{uniqueCount(todayRows, "districte")}</strong> districtes i{" "}
+          <strong>{uniqueCount(todayRows, "espai")}</strong> espais.
+        </p>
+      </div>
+
+      <div className="welcomeNext">
+        <span>Pròxima activitat</span>
+        <strong>{nextText}</strong>
+        {nextActivity && <small>{nextActivity.espai || "Sense espai"} · {nextActivity.districte || "Sense districte"}</small>}
+      </div>
+    </section>
+  );
+}
+
+
 function BarcelonaLivePanel({ rows, inscripcions = [] }) {
   const today = toLocalISODate(new Date());
   const nowMinutes = getNowMinutes();
@@ -3398,6 +3455,8 @@ function DashboardView({ rows, inscripcions = [] }) {
           </button>
         </div>
       </div>
+
+      <Barcelona2026Welcome rows={filteredRows} />
 
       <BarcelonaLivePanel rows={filteredRows} inscripcions={filteredInscripcions} />
 
@@ -4987,6 +5046,90 @@ body {
   color: #fff;
 }
 
+
+.barcelona2026Welcome {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 12% 20%, rgba(255,228,94,.55), transparent 26%),
+    radial-gradient(circle at 88% 10%, rgba(255,99,146,.34), transparent 30%),
+    linear-gradient(135deg, #5AA9E6, #7FC8F8);
+  color: #fff;
+  border-radius: 30px;
+  padding: 26px;
+  margin-bottom: 22px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, .6fr);
+  gap: 22px;
+  align-items: center;
+  box-shadow: 0 18px 42px rgba(90,169,230,.22);
+}
+
+.barcelona2026Welcome::after {
+  content: "";
+  position: absolute;
+  inset: -80px -120px auto auto;
+  width: 260px;
+  height: 260px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.2);
+  filter: blur(4px);
+}
+
+.barcelona2026Welcome h2 {
+  position: relative;
+  margin: 0 0 9px;
+  color: #fff;
+  font-size: clamp(30px, 4vw, 52px);
+  line-height: .95;
+  letter-spacing: -0.06em;
+}
+
+.barcelona2026Welcome p {
+  position: relative;
+  margin: 0;
+  color: rgba(255,255,255,.86);
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.barcelona2026Welcome p strong {
+  color: #fff;
+}
+
+.welcomeNext {
+  position: relative;
+  background: rgba(255,255,255,.18);
+  border: 1px solid rgba(255,255,255,.3);
+  border-radius: 24px;
+  padding: 18px;
+  backdrop-filter: blur(12px);
+}
+
+.welcomeNext span {
+  display: block;
+  color: rgba(255,255,255,.72);
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-bottom: 8px;
+}
+
+.welcomeNext strong {
+  display: block;
+  font-size: 21px;
+  line-height: 1.12;
+  letter-spacing: -0.035em;
+}
+
+.welcomeNext small {
+  display: block;
+  color: rgba(255,255,255,.76);
+  margin-top: 10px;
+  font-weight: 800;
+}
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -5025,6 +5168,8 @@ body {
   .liveNowBadge { text-align: left; }
   .liveKpis { grid-template-columns: repeat(2, 1fr); }
   .liveContentGrid { grid-template-columns: 1fr; }
+
+  .barcelona2026Welcome { grid-template-columns: 1fr; }
 
   .spacesMapLayout { grid-template-columns: 1fr; }
   .spacesMapPanel { position: static; }
@@ -5590,6 +5735,90 @@ body {
 .agendaHero .eyebrow,
 .barcelonaLivePanel .eyebrow {
   color: #fff;
+}
+
+
+.barcelona2026Welcome {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 12% 20%, rgba(255,228,94,.55), transparent 26%),
+    radial-gradient(circle at 88% 10%, rgba(255,99,146,.34), transparent 30%),
+    linear-gradient(135deg, #5AA9E6, #7FC8F8);
+  color: #fff;
+  border-radius: 30px;
+  padding: 26px;
+  margin-bottom: 22px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, .6fr);
+  gap: 22px;
+  align-items: center;
+  box-shadow: 0 18px 42px rgba(90,169,230,.22);
+}
+
+.barcelona2026Welcome::after {
+  content: "";
+  position: absolute;
+  inset: -80px -120px auto auto;
+  width: 260px;
+  height: 260px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.2);
+  filter: blur(4px);
+}
+
+.barcelona2026Welcome h2 {
+  position: relative;
+  margin: 0 0 9px;
+  color: #fff;
+  font-size: clamp(30px, 4vw, 52px);
+  line-height: .95;
+  letter-spacing: -0.06em;
+}
+
+.barcelona2026Welcome p {
+  position: relative;
+  margin: 0;
+  color: rgba(255,255,255,.86);
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.barcelona2026Welcome p strong {
+  color: #fff;
+}
+
+.welcomeNext {
+  position: relative;
+  background: rgba(255,255,255,.18);
+  border: 1px solid rgba(255,255,255,.3);
+  border-radius: 24px;
+  padding: 18px;
+  backdrop-filter: blur(12px);
+}
+
+.welcomeNext span {
+  display: block;
+  color: rgba(255,255,255,.72);
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-bottom: 8px;
+}
+
+.welcomeNext strong {
+  display: block;
+  font-size: 21px;
+  line-height: 1.12;
+  letter-spacing: -0.035em;
+}
+
+.welcomeNext small {
+  display: block;
+  color: rgba(255,255,255,.76);
+  margin-top: 10px;
+  font-weight: 800;
 }
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
@@ -6283,6 +6512,90 @@ body {
 .agendaHero .eyebrow,
 .barcelonaLivePanel .eyebrow {
   color: #fff;
+}
+
+
+.barcelona2026Welcome {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 12% 20%, rgba(255,228,94,.55), transparent 26%),
+    radial-gradient(circle at 88% 10%, rgba(255,99,146,.34), transparent 30%),
+    linear-gradient(135deg, #5AA9E6, #7FC8F8);
+  color: #fff;
+  border-radius: 30px;
+  padding: 26px;
+  margin-bottom: 22px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, .6fr);
+  gap: 22px;
+  align-items: center;
+  box-shadow: 0 18px 42px rgba(90,169,230,.22);
+}
+
+.barcelona2026Welcome::after {
+  content: "";
+  position: absolute;
+  inset: -80px -120px auto auto;
+  width: 260px;
+  height: 260px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.2);
+  filter: blur(4px);
+}
+
+.barcelona2026Welcome h2 {
+  position: relative;
+  margin: 0 0 9px;
+  color: #fff;
+  font-size: clamp(30px, 4vw, 52px);
+  line-height: .95;
+  letter-spacing: -0.06em;
+}
+
+.barcelona2026Welcome p {
+  position: relative;
+  margin: 0;
+  color: rgba(255,255,255,.86);
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.barcelona2026Welcome p strong {
+  color: #fff;
+}
+
+.welcomeNext {
+  position: relative;
+  background: rgba(255,255,255,.18);
+  border: 1px solid rgba(255,255,255,.3);
+  border-radius: 24px;
+  padding: 18px;
+  backdrop-filter: blur(12px);
+}
+
+.welcomeNext span {
+  display: block;
+  color: rgba(255,255,255,.72);
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-bottom: 8px;
+}
+
+.welcomeNext strong {
+  display: block;
+  font-size: 21px;
+  line-height: 1.12;
+  letter-spacing: -0.035em;
+}
+
+.welcomeNext small {
+  display: block;
+  color: rgba(255,255,255,.76);
+  margin-top: 10px;
+  font-weight: 800;
 }
 
 @media (max-width: 1000px) {
