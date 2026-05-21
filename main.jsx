@@ -1644,6 +1644,219 @@ function AgendaItem({ row, status, inscriptions, onOpen }) {
 }
 
 
+
+function getMondayISO(date = new Date()) {
+  const copy = new Date(date);
+  copy.setHours(12, 0, 0, 0);
+  const day = copy.getDay() || 7;
+  copy.setDate(copy.getDate() - day + 1);
+  return toLocalISODate(copy);
+}
+
+function WeeklyProgramExportView({ rows, inscripcions = [], query, onOpen }) {
+  const exportRef = useRef(null);
+  const [exporting, setExporting] = useState(false);
+  const [weekStart, setWeekStart] = useState(getMondayISO(new Date()));
+
+  const weekEnd = addDaysISO(weekStart, 6);
+  const inscriptionCountByIdWeb = useMemo(() => buildInscriptionCountByIdWeb(inscripcions), [inscripcions]);
+
+  const weekRows = useMemo(() => {
+    return rows
+      .filter((row) => isDateBetween(row.dataInici, weekStart, weekEnd))
+      .filter((row) =>
+        [row.idIntern, row.idWeb, row.titolWeb, row.titol, row.espai, row.categoria, row.districte, row.encarregada]
+          .join(" ")
+          .toLowerCase()
+          .includes(query.toLowerCase())
+      )
+      .sort((a, b) =>
+        `${a.dataInici || "9999-99-99"} ${a.horaInici || "99:99"}`.localeCompare(
+          `${b.dataInici || "9999-99-99"} ${b.horaInici || "99:99"}`
+        )
+      );
+  }, [rows, query, weekStart, weekEnd]);
+
+  const dayKeys = Array.from({ length: 7 }, (_, index) => addDaysISO(weekStart, index));
+  const weekGroups = groupBy(weekRows, (row) => row.dataInici);
+  const categories = countBy(weekRows, "categoria");
+  const districts = countBy(weekRows, "districte");
+
+  function moveWeek(days) {
+    setWeekStart((current) => addDaysISO(current, days));
+  }
+
+  async function exportProgram(type) {
+    if (!exportRef.current || exporting) return;
+
+    setExporting(true);
+
+    try {
+      const node = exportRef.current;
+      const fileBase = `programa-setmanal-cma-${weekStart}_${weekEnd}`;
+
+      if (type === "jpg") {
+        const dataUrl = await toJpeg(node, {
+          quality: 0.96,
+          backgroundColor: "#f7f7f5",
+          pixelRatio: 2,
+          cacheBust: true,
+        });
+
+        downloadDataUrl(dataUrl, `${fileBase}.jpg`);
+      }
+
+      if (type === "png") {
+        const dataUrl = await toPng(node, {
+          backgroundColor: "#f7f7f5",
+          pixelRatio: 2,
+          cacheBust: true,
+        });
+
+        downloadDataUrl(dataUrl, `${fileBase}.png`);
+      }
+
+      if (type === "pdf") {
+        const dataUrl = await toPng(node, {
+          backgroundColor: "#f7f7f5",
+          pixelRatio: 2,
+          cacheBust: true,
+        });
+
+        const width = node.offsetWidth;
+        const height = node.offsetHeight;
+        const pdf = new jsPDF({
+          orientation: "landscape",
+          unit: "px",
+          format: [width, height],
+        });
+
+        pdf.addImage(dataUrl, "PNG", 0, 0, width, height);
+        pdf.save(`${fileBase}.pdf`);
+      }
+    } catch (err) {
+      alert(`No s'ha pogut exportar el programa setmanal: ${err.message}`);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  return (
+    <div className="weeklyProgramView">
+      <div className="weeklyProgramControls">
+        <div>
+          <p className="eyebrow">Programa setmanal</p>
+          <h2>{formatCompactDate(weekStart)} – {formatCompactDate(weekEnd)}</h2>
+          <p>Vista exportable del programa de la setmana seleccionada.</p>
+        </div>
+
+        <div className="weeklyProgramActions">
+          <button type="button" onClick={() => moveWeek(-7)}>← Setmana anterior</button>
+          <label>
+            <span>Inici setmana</span>
+            <input type="date" value={weekStart} onChange={(e) => setWeekStart(e.target.value)} />
+          </label>
+          <button type="button" onClick={() => moveWeek(7)}>Setmana següent →</button>
+          <button type="button" onClick={() => setWeekStart(getMondayISO(new Date()))}>Avui</button>
+        </div>
+
+        <div className="weeklyExportButtons">
+          <button type="button" disabled={exporting} onClick={() => exportProgram("png")}>
+            {exporting ? "Exportant..." : "PNG"}
+          </button>
+          <button type="button" disabled={exporting} onClick={() => exportProgram("jpg")}>JPG</button>
+          <button type="button" disabled={exporting} onClick={() => exportProgram("pdf")}>PDF</button>
+        </div>
+      </div>
+
+      <div ref={exportRef} className="weeklyProgramExportArea">
+        <div className="weeklyProgramHeader">
+          <BrandMark />
+          <div>
+            <p className="eyebrow">Capital Mundial de l'Arquitectura · Gestor CMA</p>
+            <h1>Programa setmanal</h1>
+            <p>{formatCompactDate(weekStart)} – {formatCompactDate(weekEnd)}</p>
+          </div>
+          <div className="weeklyProgramKpis">
+            <div>
+              <strong>{weekRows.length}</strong>
+              <span>activitats</span>
+            </div>
+            <div>
+              <strong>{uniqueCount(weekRows, "espai")}</strong>
+              <span>espais</span>
+            </div>
+            <div>
+              <strong>{uniqueCount(weekRows, "districte")}</strong>
+              <span>districtes</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="weeklyProgramSummary">
+          <CompactPills title="Categories" data={categories} />
+          <CompactPills title="Districtes" data={districts} />
+        </div>
+
+        <div className="weeklyDaysGrid">
+          {dayKeys.map((day) => {
+            const items = weekGroups[day] || [];
+
+            return (
+              <section className="weeklyDayCard" key={day}>
+                <div className="weeklyDayHeader">
+                  <strong>{formatDate(day)}</strong>
+                  <span>{items.length} activitats</span>
+                </div>
+
+                <div className="weeklyDayItems">
+                  {items.map((row) => (
+                    <button
+                      key={`${row.idIntern}-${row._row}`}
+                      type="button"
+                      className="weeklyProgramItem"
+                      onClick={() => onOpen(row)}
+                    >
+                      <time>{row.horaInici || "—"}</time>
+                      <div>
+                        <h3>{row.titolWeb || row.titol || "Sense títol"}</h3>
+                        <p>{row.idIntern || row.idWeb || "Sense ID"} · {row.espai || "Sense espai"}</p>
+                        <small>{row.categoria || "Sense categoria"} · {row.districte || "Sense districte"} · 🎟 {row.idWeb ? inscriptionCountByIdWeb[row.idWeb] || 0 : 0}</small>
+                      </div>
+                    </button>
+                  ))}
+
+                  {items.length === 0 && <div className="weeklyEmpty">Sense activitats</div>}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CompactPills({ title, data }) {
+  const entries = toChartEntries(data, 8);
+
+  return (
+    <div className="compactPills">
+      <strong>{title}</strong>
+      <div>
+        {entries.length ? (
+          entries.map((item) => (
+            <span key={item.name}>{item.name || "Sense dades"} · {item.value}</span>
+          ))
+        ) : (
+          <span>Sense dades</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
 function CalendarView({ rows, inscripcions = [], setView, setSelectedActivityId }) {
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState("agenda");
@@ -1680,6 +1893,7 @@ function CalendarView({ rows, inscripcions = [], setView, setSelectedActivityId 
         placeholder="Buscar calendari..."
         filters={[
           { id: "agenda", label: "Agenda operativa" },
+          { id: "programa", label: "Programa setmanal" },
           { id: "cronologic", label: "Cronològic" },
           { id: "setmanal", label: "Setmanal" },
           { id: "mensual", label: "Mensual" },
@@ -1688,6 +1902,13 @@ function CalendarView({ rows, inscripcions = [], setView, setSelectedActivityId 
 
       {mode === "agenda" ? (
         <AgendaView
+          rows={rows}
+          inscripcions={inscripcions}
+          query={query}
+          onOpen={openActivity}
+        />
+      ) : mode === "programa" ? (
+        <WeeklyProgramExportView
           rows={rows}
           inscripcions={inscripcions}
           query={query}
@@ -4344,6 +4565,46 @@ p { color: #666; }
 .agendaIssueTags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 .agendaIssueTags span { background: #fff0d6; border: 1px solid #f0d7a5; color: #8a5700; border-radius: 999px; padding: 5px 8px; font-size: 11px; font-weight: 900; }
 
+
+.weeklyProgramView { display: grid; gap: 18px; }
+.weeklyProgramControls { background: #fff; border: 1px solid #ddd; border-radius: 24px; padding: 18px; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 16px; align-items: end; }
+.weeklyProgramControls h2 { margin: 0 0 6px; font-size: 28px; }
+.weeklyProgramControls p { margin: 0; }
+.weeklyProgramActions { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; justify-content: flex-end; }
+.weeklyProgramActions button, .weeklyExportButtons button { border: 1px solid #ddd; background: #fff; border-radius: 999px; padding: 10px 12px; font-size: 12px; font-weight: 900; }
+.weeklyProgramActions button:hover, .weeklyExportButtons button:hover { background: #111; color: #fff; border-color: #111; }
+.weeklyProgramActions label { display: grid; gap: 5px; }
+.weeklyProgramActions label span { color: #666; font-size: 11px; font-weight: 900; text-transform: uppercase; }
+.weeklyProgramActions input { border: 1px solid #ddd; background: #f7f7f5; border-radius: 14px; padding: 10px 12px; font-weight: 800; }
+.weeklyExportButtons { display: flex; gap: 7px; align-items: center; justify-content: flex-end; }
+.weeklyProgramExportArea { background: #f7f7f5; border-radius: 28px; padding: 24px; border: 1px solid #ddd; }
+.weeklyProgramHeader { background: #111; color: #fff; border-radius: 24px; padding: 22px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 22px; align-items: center; margin-bottom: 16px; }
+.weeklyProgramHeader .brand { color: #fff; margin: 0; }
+.weeklyProgramHeader h1 { color: #fff; font-size: 38px; }
+.weeklyProgramHeader p { color: rgba(255,255,255,.7); margin: 4px 0 0; }
+.weeklyProgramKpis { display: grid; grid-template-columns: repeat(3, 96px); gap: 8px; }
+.weeklyProgramKpis div { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.16); border-radius: 18px; padding: 13px; }
+.weeklyProgramKpis strong { display: block; font-size: 28px; line-height: 1; letter-spacing: -0.04em; }
+.weeklyProgramKpis span { display: block; color: rgba(255,255,255,.68); font-size: 11px; font-weight: 900; margin-top: 5px; }
+.weeklyProgramSummary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px; }
+.compactPills { background: #fff; border: 1px solid #ddd; border-radius: 20px; padding: 14px; }
+.compactPills > strong { display: block; margin-bottom: 9px; }
+.compactPills div { display: flex; flex-wrap: wrap; gap: 6px; }
+.compactPills span { background: #efefed; border-radius: 999px; padding: 6px 9px; font-size: 11px; font-weight: 900; color: #555; }
+.weeklyDaysGrid { display: grid; grid-template-columns: repeat(7, minmax(190px, 1fr)); gap: 10px; align-items: stretch; }
+.weeklyDayCard { background: #fff; border: 1px solid #ddd; border-radius: 20px; padding: 12px; min-height: 360px; }
+.weeklyDayHeader { border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 10px; }
+.weeklyDayHeader strong { display: block; font-size: 14px; line-height: 1.2; }
+.weeklyDayHeader span { display: block; color: #666; font-size: 12px; font-weight: 800; margin-top: 3px; }
+.weeklyDayItems { display: flex; flex-direction: column; gap: 8px; }
+.weeklyProgramItem { border: 1px solid #eee; background: #fafafa; border-radius: 14px; padding: 9px; display: grid; grid-template-columns: 42px 1fr; gap: 8px; text-align: left; }
+.weeklyProgramItem:hover { border-color: #111; background: #fff; }
+.weeklyProgramItem time { font-weight: 950; font-size: 12px; letter-spacing: -0.03em; }
+.weeklyProgramItem h3 { font-size: 12px; line-height: 1.15; margin: 0 0 4px; }
+.weeklyProgramItem p { font-size: 11px; line-height: 1.2; margin: 0 0 4px; }
+.weeklyProgramItem small { color: #777; font-size: 10px; line-height: 1.2; display: block; }
+.weeklyEmpty { background: #f3f3f1; color: #777; border-radius: 14px; padding: 12px; font-size: 12px; font-weight: 800; text-align: center; }
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -4369,6 +4630,14 @@ p { color: #666; }
   .agendaAlerts { grid-template-columns: repeat(2, 1fr); }
   .agendaGrid { grid-template-columns: 1fr; }
   .agendaItems { max-height: none; }
+
+  .weeklyProgramControls { grid-template-columns: 1fr; }
+  .weeklyProgramActions, .weeklyExportButtons { justify-content: flex-start; }
+  .weeklyProgramHeader { grid-template-columns: 1fr; }
+  .weeklyProgramKpis { grid-template-columns: repeat(3, 1fr); }
+  .weeklyProgramSummary { grid-template-columns: 1fr; }
+  .weeklyDaysGrid { grid-template-columns: 1fr; }
+  .weeklyDayCard { min-height: auto; }
 
   .spacesMapLayout { grid-template-columns: 1fr; }
   .spacesMapPanel { position: static; }
@@ -4683,6 +4952,46 @@ p { color: #666; }
 .agendaMeta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; color: #666; font-size: 12px; font-weight: 800; }
 .agendaIssueTags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 .agendaIssueTags span { background: #fff0d6; border: 1px solid #f0d7a5; color: #8a5700; border-radius: 999px; padding: 5px 8px; font-size: 11px; font-weight: 900; }
+
+
+.weeklyProgramView { display: grid; gap: 18px; }
+.weeklyProgramControls { background: #fff; border: 1px solid #ddd; border-radius: 24px; padding: 18px; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 16px; align-items: end; }
+.weeklyProgramControls h2 { margin: 0 0 6px; font-size: 28px; }
+.weeklyProgramControls p { margin: 0; }
+.weeklyProgramActions { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; justify-content: flex-end; }
+.weeklyProgramActions button, .weeklyExportButtons button { border: 1px solid #ddd; background: #fff; border-radius: 999px; padding: 10px 12px; font-size: 12px; font-weight: 900; }
+.weeklyProgramActions button:hover, .weeklyExportButtons button:hover { background: #111; color: #fff; border-color: #111; }
+.weeklyProgramActions label { display: grid; gap: 5px; }
+.weeklyProgramActions label span { color: #666; font-size: 11px; font-weight: 900; text-transform: uppercase; }
+.weeklyProgramActions input { border: 1px solid #ddd; background: #f7f7f5; border-radius: 14px; padding: 10px 12px; font-weight: 800; }
+.weeklyExportButtons { display: flex; gap: 7px; align-items: center; justify-content: flex-end; }
+.weeklyProgramExportArea { background: #f7f7f5; border-radius: 28px; padding: 24px; border: 1px solid #ddd; }
+.weeklyProgramHeader { background: #111; color: #fff; border-radius: 24px; padding: 22px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 22px; align-items: center; margin-bottom: 16px; }
+.weeklyProgramHeader .brand { color: #fff; margin: 0; }
+.weeklyProgramHeader h1 { color: #fff; font-size: 38px; }
+.weeklyProgramHeader p { color: rgba(255,255,255,.7); margin: 4px 0 0; }
+.weeklyProgramKpis { display: grid; grid-template-columns: repeat(3, 96px); gap: 8px; }
+.weeklyProgramKpis div { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.16); border-radius: 18px; padding: 13px; }
+.weeklyProgramKpis strong { display: block; font-size: 28px; line-height: 1; letter-spacing: -0.04em; }
+.weeklyProgramKpis span { display: block; color: rgba(255,255,255,.68); font-size: 11px; font-weight: 900; margin-top: 5px; }
+.weeklyProgramSummary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px; }
+.compactPills { background: #fff; border: 1px solid #ddd; border-radius: 20px; padding: 14px; }
+.compactPills > strong { display: block; margin-bottom: 9px; }
+.compactPills div { display: flex; flex-wrap: wrap; gap: 6px; }
+.compactPills span { background: #efefed; border-radius: 999px; padding: 6px 9px; font-size: 11px; font-weight: 900; color: #555; }
+.weeklyDaysGrid { display: grid; grid-template-columns: repeat(7, minmax(190px, 1fr)); gap: 10px; align-items: stretch; }
+.weeklyDayCard { background: #fff; border: 1px solid #ddd; border-radius: 20px; padding: 12px; min-height: 360px; }
+.weeklyDayHeader { border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 10px; }
+.weeklyDayHeader strong { display: block; font-size: 14px; line-height: 1.2; }
+.weeklyDayHeader span { display: block; color: #666; font-size: 12px; font-weight: 800; margin-top: 3px; }
+.weeklyDayItems { display: flex; flex-direction: column; gap: 8px; }
+.weeklyProgramItem { border: 1px solid #eee; background: #fafafa; border-radius: 14px; padding: 9px; display: grid; grid-template-columns: 42px 1fr; gap: 8px; text-align: left; }
+.weeklyProgramItem:hover { border-color: #111; background: #fff; }
+.weeklyProgramItem time { font-weight: 950; font-size: 12px; letter-spacing: -0.03em; }
+.weeklyProgramItem h3 { font-size: 12px; line-height: 1.15; margin: 0 0 4px; }
+.weeklyProgramItem p { font-size: 11px; line-height: 1.2; margin: 0 0 4px; }
+.weeklyProgramItem small { color: #777; font-size: 10px; line-height: 1.2; display: block; }
+.weeklyEmpty { background: #f3f3f1; color: #777; border-radius: 14px; padding: 12px; font-size: 12px; font-weight: 800; text-align: center; }
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -5124,6 +5433,46 @@ p { color: #666; }
 .agendaMeta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; color: #666; font-size: 12px; font-weight: 800; }
 .agendaIssueTags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 .agendaIssueTags span { background: #fff0d6; border: 1px solid #f0d7a5; color: #8a5700; border-radius: 999px; padding: 5px 8px; font-size: 11px; font-weight: 900; }
+
+
+.weeklyProgramView { display: grid; gap: 18px; }
+.weeklyProgramControls { background: #fff; border: 1px solid #ddd; border-radius: 24px; padding: 18px; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 16px; align-items: end; }
+.weeklyProgramControls h2 { margin: 0 0 6px; font-size: 28px; }
+.weeklyProgramControls p { margin: 0; }
+.weeklyProgramActions { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; justify-content: flex-end; }
+.weeklyProgramActions button, .weeklyExportButtons button { border: 1px solid #ddd; background: #fff; border-radius: 999px; padding: 10px 12px; font-size: 12px; font-weight: 900; }
+.weeklyProgramActions button:hover, .weeklyExportButtons button:hover { background: #111; color: #fff; border-color: #111; }
+.weeklyProgramActions label { display: grid; gap: 5px; }
+.weeklyProgramActions label span { color: #666; font-size: 11px; font-weight: 900; text-transform: uppercase; }
+.weeklyProgramActions input { border: 1px solid #ddd; background: #f7f7f5; border-radius: 14px; padding: 10px 12px; font-weight: 800; }
+.weeklyExportButtons { display: flex; gap: 7px; align-items: center; justify-content: flex-end; }
+.weeklyProgramExportArea { background: #f7f7f5; border-radius: 28px; padding: 24px; border: 1px solid #ddd; }
+.weeklyProgramHeader { background: #111; color: #fff; border-radius: 24px; padding: 22px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 22px; align-items: center; margin-bottom: 16px; }
+.weeklyProgramHeader .brand { color: #fff; margin: 0; }
+.weeklyProgramHeader h1 { color: #fff; font-size: 38px; }
+.weeklyProgramHeader p { color: rgba(255,255,255,.7); margin: 4px 0 0; }
+.weeklyProgramKpis { display: grid; grid-template-columns: repeat(3, 96px); gap: 8px; }
+.weeklyProgramKpis div { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.16); border-radius: 18px; padding: 13px; }
+.weeklyProgramKpis strong { display: block; font-size: 28px; line-height: 1; letter-spacing: -0.04em; }
+.weeklyProgramKpis span { display: block; color: rgba(255,255,255,.68); font-size: 11px; font-weight: 900; margin-top: 5px; }
+.weeklyProgramSummary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px; }
+.compactPills { background: #fff; border: 1px solid #ddd; border-radius: 20px; padding: 14px; }
+.compactPills > strong { display: block; margin-bottom: 9px; }
+.compactPills div { display: flex; flex-wrap: wrap; gap: 6px; }
+.compactPills span { background: #efefed; border-radius: 999px; padding: 6px 9px; font-size: 11px; font-weight: 900; color: #555; }
+.weeklyDaysGrid { display: grid; grid-template-columns: repeat(7, minmax(190px, 1fr)); gap: 10px; align-items: stretch; }
+.weeklyDayCard { background: #fff; border: 1px solid #ddd; border-radius: 20px; padding: 12px; min-height: 360px; }
+.weeklyDayHeader { border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 10px; }
+.weeklyDayHeader strong { display: block; font-size: 14px; line-height: 1.2; }
+.weeklyDayHeader span { display: block; color: #666; font-size: 12px; font-weight: 800; margin-top: 3px; }
+.weeklyDayItems { display: flex; flex-direction: column; gap: 8px; }
+.weeklyProgramItem { border: 1px solid #eee; background: #fafafa; border-radius: 14px; padding: 9px; display: grid; grid-template-columns: 42px 1fr; gap: 8px; text-align: left; }
+.weeklyProgramItem:hover { border-color: #111; background: #fff; }
+.weeklyProgramItem time { font-weight: 950; font-size: 12px; letter-spacing: -0.03em; }
+.weeklyProgramItem h3 { font-size: 12px; line-height: 1.15; margin: 0 0 4px; }
+.weeklyProgramItem p { font-size: 11px; line-height: 1.2; margin: 0 0 4px; }
+.weeklyProgramItem small { color: #777; font-size: 10px; line-height: 1.2; display: block; }
+.weeklyEmpty { background: #f3f3f1; color: #777; border-radius: 14px; padding: 12px; font-size: 12px; font-weight: 800; text-align: center; }
 
 @media (max-width: 1000px) {
   .activitySearchRow {
