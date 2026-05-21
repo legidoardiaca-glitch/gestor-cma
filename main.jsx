@@ -1692,12 +1692,13 @@ function TileSpacesMap({ spaces, selected, setSelectedName }) {
     event.currentTarget.releasePointerCapture?.(event.pointerId);
   }
 
-  function zoomIn() {
-    setZoom((z) => Math.min(16, z + 1));
-  }
+  function handleWheel(event) {
+    if (!event.ctrlKey) return;
 
-  function zoomOut() {
-    setZoom((z) => Math.max(10, z - 1));
+    event.preventDefault();
+
+    const direction = event.deltaY < 0 ? 1 : -1;
+    setZoom((z) => Math.max(10, Math.min(16, z + direction)));
   }
 
   function openCluster(cluster) {
@@ -1715,14 +1716,8 @@ function TileSpacesMap({ spaces, selected, setSelectedName }) {
 
   return (
     <div className="tileMapShell">
-      <div className="tileMapControls">
-        <button type="button" onClick={zoomIn}>+</button>
-        <button type="button" onClick={zoomOut}>−</button>
-        <span>Zoom {zoom}</span>
-      </div>
-
       <div className="tileMapCtrlHint">
-        Mantén <b>Ctrl</b> premut i arrossega per moure el mapa
+        <b>Ctrl</b> + roda per fer zoom · <b>Ctrl</b> + arrossegar per moure
       </div>
 
       <div
@@ -1731,12 +1726,13 @@ function TileSpacesMap({ spaces, selected, setSelectedName }) {
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
+        onWheel={handleWheel}
       >
         <div className="tileMapInner">
           {mapData.tiles.map((tile) => (
             <img
               key={`${zoom}-${tile.x}-${tile.y}`}
-              src={`https://tile.openstreetmap.org/${zoom}/${tile.x}/${tile.y}.png`}
+              src={`https://a.basemaps.cartocdn.com/light_all/${zoom}/${tile.x}/${tile.y}@2x.png`}
               alt=""
               loading="lazy"
               className="tileMapTile"
@@ -3590,6 +3586,36 @@ p { color: #666; }
 .tileMapPoint.cluster { background: #111; border-color: #fff; }
 .tileMapPoint.cluster span { font-size: 12px; }
 
+
+.spacesMapPanel .spacesList,
+.spacesMapPanel .spaceCard,
+.spacesMapPanel > .spacesList,
+.spacesMapPanel > .spaceCard {
+  display: none !important;
+}
+
+.spacesMapPanel {
+  overflow: hidden;
+}
+
+.spacesMapPanel .tileMapShell {
+  display: block !important;
+}
+
+
+.tileMapControls {
+  display: none !important;
+}
+
+.tileMapCtrlHint {
+  left: 12px;
+  right: auto;
+}
+
+.tileMapTile {
+  filter: grayscale(.08) saturate(.55) brightness(1.05) contrast(.96);
+}
+
 @media (max-width: 1000px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
@@ -3825,6 +3851,36 @@ p { color: #666; }
 .tileMapCtrlHint { position: absolute; z-index: 30; top: 12px; right: 12px; background: rgba(255,255,255,.94); border: 1px solid #ddd; border-radius: 999px; padding: 10px 13px; color: #555; font-size: 12px; font-weight: 800; box-shadow: 0 4px 16px rgba(0,0,0,.08); pointer-events: none; }
 .tileMapPoint.cluster { background: #111; border-color: #fff; }
 .tileMapPoint.cluster span { font-size: 12px; }
+
+
+.spacesMapPanel .spacesList,
+.spacesMapPanel .spaceCard,
+.spacesMapPanel > .spacesList,
+.spacesMapPanel > .spaceCard {
+  display: none !important;
+}
+
+.spacesMapPanel {
+  overflow: hidden;
+}
+
+.spacesMapPanel .tileMapShell {
+  display: block !important;
+}
+
+
+.tileMapControls {
+  display: none !important;
+}
+
+.tileMapCtrlHint {
+  left: 12px;
+  right: auto;
+}
+
+.tileMapTile {
+  filter: grayscale(.08) saturate(.55) brightness(1.05) contrast(.96);
+}
 
 @media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
@@ -4176,6 +4232,36 @@ p { color: #666; }
 .tileMapCtrlHint { position: absolute; z-index: 30; top: 12px; right: 12px; background: rgba(255,255,255,.94); border: 1px solid #ddd; border-radius: 999px; padding: 10px 13px; color: #555; font-size: 12px; font-weight: 800; box-shadow: 0 4px 16px rgba(0,0,0,.08); pointer-events: none; }
 .tileMapPoint.cluster { background: #111; border-color: #fff; }
 .tileMapPoint.cluster span { font-size: 12px; }
+
+
+.spacesMapPanel .spacesList,
+.spacesMapPanel .spaceCard,
+.spacesMapPanel > .spacesList,
+.spacesMapPanel > .spaceCard {
+  display: none !important;
+}
+
+.spacesMapPanel {
+  overflow: hidden;
+}
+
+.spacesMapPanel .tileMapShell {
+  display: block !important;
+}
+
+
+.tileMapControls {
+  display: none !important;
+}
+
+.tileMapCtrlHint {
+  left: 12px;
+  right: auto;
+}
+
+.tileMapTile {
+  filter: grayscale(.08) saturate(.55) brightness(1.05) contrast(.96);
+}
 
 @media (max-width: 1000px) {
   .activitySearchRow {
