@@ -1498,11 +1498,204 @@ function parseCoordinate(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+
+function SpacesMap({ spaces, selected, setSelectedName, baseMap = "positron" }) {
+  const mapRef = useRef(null);
+  const mapInstance = useRef(null);
+  const markersLayer = useRef(null);
+  const tileLayer = useRef(null);
+  const selectedLayer = useRef(null);
+  const initialFitDone = useRef(false);
+
+  const pointData = useMemo(() => {
+    return spaces
+      .map((space) => {
+        const lat = parseCoordinate(space.latitud);
+        const lon = parseCoordinate(space.longitud);
+
+        if (lat === null || lon === null) return null;
+
+        return {
+          title: space.title,
+          lat,
+          lon,
+          count: space.count || 0,
+          districte: space.districte || "",
+        };
+      })
+      .filter(Boolean);
+  }, [spaces]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadLeafletAssets()
+      .then((L) => {
+        if (cancelled || !mapRef.current) return;
+
+        if (!mapInstance.current) {
+          mapInstance.current = L.map(mapRef.current, {
+            center: [41.3874, 2.1686],
+            zoom: 12,
+            zoomControl: true,
+            scrollWheelZoom: true,
+            preferCanvas: true,
+          });
+        }
+
+        const base = getMapBaseLayer(baseMap);
+
+        if (tileLayer.current) {
+          tileLayer.current.remove();
+        }
+
+        tileLayer.current = L.tileLayer(base.url, {
+          attribution: base.attribution,
+          maxZoom: 19,
+          updateWhenIdle: true,
+          keepBuffer: 2,
+        }).addTo(mapInstance.current);
+
+        setTimeout(() => {
+          mapInstance.current?.invalidateSize();
+        }, 250);
+      })
+      .catch((err) => {
+        console.error("No s'ha pogut carregar el mapa", err);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [baseMap]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadLeafletAssets()
+      .then((L) => {
+        if (cancelled || !mapInstance.current) return;
+
+        if (markersLayer.current) {
+          markersLayer.current.remove();
+        }
+
+        const canCluster = typeof L.markerClusterGroup === "function";
+        markersLayer.current = canCluster
+          ? L.markerClusterGroup({
+              showCoverageOnHover: false,
+              spiderfyOnMaxZoom: true,
+              chunkedLoading: true,
+              chunkInterval: 50,
+              chunkDelay: 20,
+              maxClusterRadius: 48,
+            })
+          : L.layerGroup();
+
+        const icon = L.divIcon({
+          className: "spaceMapMarker",
+          html: "<span></span>",
+          iconSize: [22, 22],
+          iconAnchor: [11, 11],
+        });
+
+        const markers = [];
+        const bounds = [];
+
+        pointData.forEach((point) => {
+          const marker = L.marker([point.lat, point.lon], { icon });
+
+          marker.bindPopup(`
+            <div class="mapPopup">
+              <strong>${point.title || "Espai"}</strong>
+              <span>${point.districte || ""}</span>
+              <small>${point.count || 0} passis vinculats</small>
+            </div>
+          `);
+
+          marker.on("click", () => {
+            setSelectedName(point.title);
+          });
+
+          markers.push(marker);
+          bounds.push([point.lat, point.lon]);
+        });
+
+        if (canCluster && markersLayer.current.addLayers) {
+          markersLayer.current.addLayers(markers);
+        } else {
+          markers.forEach((marker) => marker.addTo(markersLayer.current));
+        }
+
+        markersLayer.current.addTo(mapInstance.current);
+
+        if (!initialFitDone.current) {
+          if (bounds.length > 1) {
+            mapInstance.current.fitBounds(bounds, { padding: [30, 30] });
+          } else if (bounds.length === 1) {
+            mapInstance.current.setView(bounds[0], 15);
+          }
+
+          initialFitDone.current = true;
+        }
+
+        setTimeout(() => {
+          mapInstance.current?.invalidateSize();
+        }, 250);
+      })
+      .catch((err) => {
+        console.error("No s'han pogut carregar els punts del mapa", err);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pointData, setSelectedName]);
+
+  useEffect(() => {
+    if (!mapInstance.current || !selected?.latitud || !selected?.longitud || !window.L) return;
+
+    const L = window.L;
+    const lat = parseCoordinate(selected.latitud);
+    const lon = parseCoordinate(selected.longitud);
+
+    if (lat === null || lon === null) return;
+
+    if (selectedLayer.current) {
+      selectedLayer.current.remove();
+    }
+
+    selectedLayer.current = L.circleMarker([lat, lon], {
+      radius: 18,
+      color: "#111",
+      weight: 3,
+      fillColor: "#ffffff",
+      fillOpacity: 0.65,
+    }).addTo(mapInstance.current);
+
+    mapInstance.current.setView([lat, lon], Math.max(mapInstance.current.getZoom(), 15), {
+      animate: true,
+    });
+  }, [selected]);
+
+  return (
+    <div className="spacesMapShell">
+      <div ref={mapRef} className="spacesMapCanvas" />
+      {!pointData.length && (
+        <div className="mapNoPoints">No hi ha espais amb coordenades per mostrar amb aquests filtres.</div>
+      )}
+    </div>
+  );
+}
+
+
 function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
   const [query, setQuery] = useState("");
   const [selectedName, setSelectedName] = useState("");
   const [filter, setFilter] = useState("all");
   const [districtFilter, setDistrictFilter] = useState("all");
+  const [mode, setMode] = useState("list");
+  const [baseMap, setBaseMap] = useState("positron");
 
   const espaisLoaded = apiSpaces.length > 0;
   const allSpaces = useMemo(() => buildDerivedSpaces(rows, apiSpaces), [rows, apiSpaces]);
@@ -1541,7 +1734,7 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
     });
   }, [allSpaces, query, filter, districtFilter, espaisLoaded]);
 
-  const selected = spaces.find((space) => space.title === selectedName) || spaces[0] || null;
+  const selected = spaces.find((space) => space.title === selectedName) || (mode === "list" ? spaces[0] : null);
   const unlinkedCount = espaisLoaded ? allSpaces.filter((space) => !space.matched).length : 0;
   const spacesWithMap = spaces.filter((space) => space.latitud && space.longitud);
 
@@ -1554,7 +1747,7 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
     <>
       <Top
         title="Espais"
-        subtitle="Espais del programa amb coordenades, imatges i activitats vinculades."
+        subtitle="Espais del programa amb coordenades, imatges, mapa i activitats vinculades."
       />
 
       <div className="stats dashboardStats">
@@ -1609,42 +1802,87 @@ function SpacesView({ rows, apiSpaces = [], setView, setSelectedActivityId }) {
                 ))}
               </select>
             </label>
+
+            <label>
+              <span>Vista</span>
+              <select value={mode} onChange={(e) => setMode(e.target.value)}>
+                <option value="list">Llista</option>
+                <option value="map">Mapa</option>
+              </select>
+            </label>
+
+            {mode === "map" && (
+              <label>
+                <span>Base</span>
+                <select value={baseMap} onChange={(e) => setBaseMap(e.target.value)}>
+                  <option value="positron">CartoDB Positron</option>
+                  <option value="voyager">CartoDB Voyager</option>
+                  <option value="toner">Toner Lite</option>
+                  <option value="osm">OpenStreetMap</option>
+                </select>
+              </label>
+            )}
           </div>
         </div>
       </div>
 
-      <div className="spacesLayout">
-        <div className="spacesList">
-          {spaces.map((space) => (
-            <button
-              key={`${space.title}-${space.id}`}
-              className={`spaceCard ${selected?.title === space.title ? "selected" : ""}`}
-              onClick={() => setSelectedName(space.title)}
-            >
-              <div className="spaceThumb">
-                {space.imatge ? (
-                  <img src={normalizeImageUrl(space.imatge)} alt={space.title} referrerPolicy="no-referrer" />
-                ) : (
-                  <span>Sense imatge</span>
-                )}
-              </div>
-
-              <div>
-                <div className="badges">
-                  <Badge>{space.districte || "Sense districte"}</Badge>
-                  {space.latitud && space.longitud && <Badge tone="success">Coordenades</Badge>}
-                  {espaisLoaded && !space.matched && <Badge tone="warning">Revisar vincle</Badge>}
+      {mode === "list" ? (
+        <div className="spacesLayout">
+          <div className="spacesList">
+            {spaces.map((space) => (
+              <button
+                key={`${space.title}-${space.id}`}
+                className={`spaceCard ${selected?.title === space.title ? "selected" : ""}`}
+                onClick={() => setSelectedName(space.title)}
+              >
+                <div className="spaceThumb">
+                  {space.imatge ? (
+                    <img src={normalizeImageUrl(space.imatge)} alt={space.title} referrerPolicy="no-referrer" />
+                  ) : (
+                    <span>Sense imatge</span>
+                  )}
                 </div>
-                <h3>{space.title}</h3>
-                <p>{space.adreca || "Adreça pendent"}</p>
-                <small>{space.count} passis vinculats</small>
-              </div>
-            </button>
-          ))}
-        </div>
 
-        <SpaceDetail space={selected} onOpenActivity={openActivity} espaisLoaded={espaisLoaded} />
-      </div>
+                <div>
+                  <div className="badges">
+                    <Badge>{space.districte || "Sense districte"}</Badge>
+                    {space.latitud && space.longitud && <Badge tone="success">Coordenades</Badge>}
+                    {espaisLoaded && !space.matched && <Badge tone="warning">Revisar vincle</Badge>}
+                  </div>
+                  <h3>{space.title}</h3>
+                  <p>{space.adreca || "Adreça pendent"}</p>
+                  <small>{space.count} passis vinculats</small>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          <SpaceDetail space={selected} onOpenActivity={openActivity} espaisLoaded={espaisLoaded} />
+        </div>
+      ) : (
+        <div className="spacesMapLayout">
+          <div className="spacesMapPanel">
+            <SpacesMap
+              spaces={spacesWithMap}
+              selected={selected}
+              setSelectedName={setSelectedName}
+              baseMap={baseMap}
+            />
+            <div className="mapHint">
+              <strong>{spacesWithMap.length}</strong> espais amb coordenades · clic al punt per obrir fitxa
+            </div>
+          </div>
+
+          {selected ? (
+            <SpaceDetail space={selected} onOpenActivity={openActivity} espaisLoaded={espaisLoaded} />
+          ) : (
+            <div className="panel mapEmptyPanel">
+              <h2>Selecciona un punt al mapa</h2>
+              <p>La fitxa completa de l’espai només es mostra quan cliques un marcador.</p>
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 }
