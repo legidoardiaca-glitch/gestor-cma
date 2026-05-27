@@ -7862,4 +7862,6 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
 `;
 
 
-createRoot(document.getElementById("root")).render(Reac
+const rootElement = document.getElementById("root");
+const root = createRoot(rootElement);
+root.render(React.createElement(App));
