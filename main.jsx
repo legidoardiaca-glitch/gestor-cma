@@ -4442,7 +4442,6 @@ function TempsCapitalitatView({ rows, inscripcions = [] }) {
   const startDate = "2026-02-12";
   const endDate = "2026-12-13";
   const countdownTarget = "2026-12-13T23:59:59";
-  const today = toLocalISODate(now);
 
   const [particles, setParticles] = useState([]);
   const [funMessage, setFunMessage] = useState({
@@ -4451,6 +4450,8 @@ function TempsCapitalitatView({ rows, inscripcions = [] }) {
     tone: "blue",
   });
   const [now, setNow] = useState(() => new Date());
+
+  const today = toLocalISODate(now);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -7861,4 +7862,4 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
 `;
 
 
-createRoot(document.getElementById("root")).render(React.createElement(App));
+createRoot(document.getElementById("root")).render(Reac
