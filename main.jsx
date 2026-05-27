@@ -43,6 +43,23 @@ function downloadDataUrl(dataUrl, fileName) {
   link.click();
 }
 
+
+function normalizeLooseText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function getModalitatKey(value) {
+  const text = normalizeLooseText(value).toUpperCase();
+  if (!text) return "";
+  const match = text.match(/\b([ABC])\b/) || text.match(/^([ABC])/);
+  return match ? match[1] : text;
+}
+
 function formatCompactDate(dateString) {
   if (!dateString || dateString === "—") return "—";
   const date = new Date(`${dateString}T12:00:00`);
@@ -696,6 +713,7 @@ function getVisibleNavItems(role) {
 
   const allItems = [
     ["dashboard", "Dashboard"],
+    ["temps", "Temps de Capitalitat"],
     ["direccio", "Direcció"],
     ["activitats", "Activitats"],
     ["propostes", "Propostes"],
@@ -711,14 +729,14 @@ function getVisibleNavItems(role) {
   }
 
   if (normalizedRole === "editor") {
-    return allItems.filter(([id]) => ["activitats", "propostes", "calendari", "espais"].includes(id));
+    return allItems.filter(([id]) => ["activitats", "propostes", "calendari", "espais", "temps"].includes(id));
   }
 
   if (normalizedRole === "cap_projecte") {
-    return allItems.filter(([id]) => ["activitats", "propostes", "calendari", "espais"].includes(id));
+    return allItems.filter(([id]) => ["activitats", "propostes", "calendari", "espais", "temps"].includes(id));
   }
 
-  return allItems.filter(([id]) => ["activitats", "calendari", "espais"].includes(id));
+  return allItems.filter(([id]) => ["activitats", "calendari", "espais", "temps"].includes(id));
 }
 
 function getDefaultViewForRole(role) {
@@ -3313,6 +3331,7 @@ function DashboardView({ rows, inscripcions = [] }) {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [districtFilter, setDistrictFilter] = useState("all");
   const [managerFilter, setManagerFilter] = useState("all");
+  const [modalitatFilter, setModalitatFilter] = useState("all");
 
   const todayLabel = new Date().toLocaleDateString("ca-ES", {
     weekday: "long",
@@ -3331,6 +3350,7 @@ function DashboardView({ rows, inscripcions = [] }) {
       categories: Array.from(new Set(rows.map((row) => row.categoria).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ca")),
       districts: Array.from(new Set(rows.map((row) => row.districte).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ca")),
       managers: Array.from(new Set(rows.map((row) => row.encarregada).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ca")),
+      modalitats: Array.from(new Set(rows.map((row) => getModalitatKey(row.modalitat)).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ca")),
     };
   }, [rows]);
 
@@ -3345,10 +3365,11 @@ function DashboardView({ rows, inscripcions = [] }) {
       const matchesCategory = categoryFilter === "all" || row.categoria === categoryFilter;
       const matchesDistrict = districtFilter === "all" || row.districte === districtFilter;
       const matchesManager = managerFilter === "all" || row.encarregada === managerFilter;
+      const matchesModalitat = modalitatFilter === "all" || getModalitatKey(row.modalitat) === modalitatFilter;
 
-      return inDateRange && matchesMonth && matchesCategory && matchesDistrict && matchesManager;
+      return inDateRange && matchesMonth && matchesCategory && matchesDistrict && matchesManager && matchesModalitat;
     });
-  }, [rows, startDate, endDate, monthFilter, categoryFilter, districtFilter, managerFilter]);
+  }, [rows, startDate, endDate, monthFilter, categoryFilter, districtFilter, managerFilter, modalitatFilter]);
 
   const idWebToActivity = useMemo(() => {
     const map = new Map();
@@ -3372,10 +3393,11 @@ function DashboardView({ rows, inscripcions = [] }) {
       const matchesCategory = categoryFilter === "all" || activity.categoria === categoryFilter;
       const matchesDistrict = districtFilter === "all" || activity.districte === districtFilter;
       const matchesManager = managerFilter === "all" || activity.encarregada === managerFilter;
+      const matchesModalitat = modalitatFilter === "all" || getModalitatKey(activity.modalitat) === modalitatFilter;
 
-      return matchesCategory && matchesDistrict && matchesManager;
+      return matchesCategory && matchesDistrict && matchesManager && matchesModalitat;
     });
-  }, [inscripcions, filteredIdWeb, idWebToActivity, categoryFilter, districtFilter, managerFilter]);
+  }, [inscripcions, filteredIdWeb, idWebToActivity, categoryFilter, districtFilter, managerFilter, modalitatFilter]);
 
   const categoryData = countBy(filteredRows, "categoria");
   const districtData = countBy(filteredRows, "districte");
@@ -3400,6 +3422,7 @@ function DashboardView({ rows, inscripcions = [] }) {
     setCategoryFilter("all");
     setDistrictFilter("all");
     setManagerFilter("all");
+    setModalitatFilter("all");
   }
 
   async function exportDashboard(type) {
@@ -3531,6 +3554,16 @@ function DashboardView({ rows, inscripcions = [] }) {
               <option value="all">Totes</option>
               {filterOptions.managers.map((manager) => (
                 <option key={manager} value={manager}>{manager}</option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>Modalitat</span>
+            <select value={modalitatFilter} onChange={(e) => setModalitatFilter(e.target.value)}>
+              <option value="all">Totes</option>
+              {filterOptions.modalitats.map((modalitat) => (
+                <option key={modalitat} value={modalitat}>Modalitat {modalitat}</option>
               ))}
             </select>
           </label>
@@ -4322,6 +4355,132 @@ function DataScopeControl({ dataScope, setDataScope, rows }) {
 }
 
 
+
+function dateDiffDays(start, end) {
+  const a = new Date(`${start}T12:00:00`);
+  const b = new Date(`${end}T12:00:00`);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 0;
+  return Math.round((b - a) / 86400000);
+}
+
+function getMostActiveEntry(data) {
+  return Object.entries(data || {})
+    .filter(([name]) => name && name !== "Sense dades" && name !== "Sense districte" && name !== "Sense espai")
+    .sort((a, b) => b[1] - a[1])[0] || ["Sense dades", 0];
+}
+
+function DistrictMiniMap({ district }) {
+  const normalized = normalizeLooseText(district);
+  const cells = [
+    ["ciutat vella", "Ciutat Vella", "tm-d1"],
+    ["eixample", "Eixample", "tm-d2"],
+    ["sants montjuic", "Sants-Montjuïc", "tm-d3"],
+    ["les corts", "Les Corts", "tm-d4"],
+    ["sarria sant gervasi", "Sarrià", "tm-d5"],
+    ["gracia", "Gràcia", "tm-d6"],
+    ["horta guinardo", "Horta", "tm-d7"],
+    ["nou barris", "Nou Barris", "tm-d8"],
+    ["sant andreu", "Sant Andreu", "tm-d9"],
+    ["sant marti", "Sant Martí", "tm-d10"],
+  ];
+
+  return (
+    <div className="tempsMiniMap">
+      {cells.map(([key, label, className]) => {
+        const active = normalized && (normalized.includes(key) || key.includes(normalized));
+        return (
+          <div key={key} className={`tempsMapCell ${className} ${active ? "active" : ""}`}>
+            <span>{label}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SaintFigure({ side, name, subtitle }) {
+  return (
+    <div className={`saintFigure ${side}`}>
+      <div className="saintDrawing">
+        <div className="saintHalo" />
+        <div className="saintHead" />
+        <div className="saintBody" />
+        <div className="saintCape" />
+        <div className="saintPalm" />
+      </div>
+      <div>
+        <strong>{name}</strong>
+        <span>{subtitle}</span>
+      </div>
+    </div>
+  );
+}
+
+function TempsCapitalitatView({ rows, inscripcions = [] }) {
+  const startDate = "2026-02-12";
+  const endDate = "2026-12-13";
+  const today = toLocalISODate(new Date());
+
+  const totalDays = Math.max(1, dateDiffDays(startDate, endDate));
+  const elapsedDays = Math.max(0, Math.min(totalDays, dateDiffDays(startDate, today)));
+  const remainingDays = Math.max(0, dateDiffDays(today, endDate));
+  const progress = Math.max(0, Math.min(100, Math.round((elapsedDays / totalDays) * 100)));
+
+  const completedRows = rows.filter((row) => isValidDateString(row.dataInici) && row.dataInici < today);
+  const pendingRows = rows.filter((row) => !isValidDateString(row.dataInici) || row.dataInici >= today);
+  const activeProgramPercent = rows.length ? Math.round((completedRows.length / rows.length) * 100) : 0;
+
+  const inscriptionsTotal = inscripcions.reduce((sum, row) => sum + (row.entrades || 1), 0);
+  const inscriptionsWithActivity = inscripcions.filter((row) => row.idWeb).length;
+
+  const [topSpace, topSpaceValue] = getMostActiveEntry(countBy(rows, "espai"));
+  const [topDistrict, topDistrictValue] = getMostActiveEntry(countBy(rows, "districte"));
+  const [topCategory, topCategoryValue] = getMostActiveEntry(countBy(rows, "categoria"));
+
+  const todayRows = rows.filter((row) => row.dataInici === today);
+  const message = remainingDays > 0
+    ? "La ciutat és l’escenari. Seguim activant el programa."
+    : "La Capitalitat ha arribat al seu tancament: toca celebrar i fer balanç.";
+
+  return (
+    <>
+      <Top title="Temps de Capitalitat" subtitle="Compte enrere, activació del programa i pols cultural entre Santa Eulàlia i Santa Llúcia." />
+
+      <section className="tempsHero">
+        <SaintFigure side="left" name="Santa Eulàlia" subtitle="Inici del cicle · Febrer" />
+        <div className="tempsCenter">
+          <p className="eyebrow">Santa Eulàlia → Santa Llúcia</p>
+          <h2>{remainingDays}</h2>
+          <span>dies fins al 13 de desembre</span>
+          <div className="tempsProgress"><i style={{ width: `${progress}%` }} /></div>
+          <div className="tempsDates">
+            <span>12 febrer</span><strong>{progress}% del cicle</strong><span>13 desembre</span>
+          </div>
+        </div>
+        <SaintFigure side="right" name="Santa Llúcia" subtitle="Tancament del cicle · 13 desembre" />
+      </section>
+
+      <section className="tempsBigCounters">
+        <div className="tempsCounterCard main"><span>Activitats finalitzades</span><strong>{completedRows.length}</strong><p>{activeProgramPercent}% del programa ja ha passat.</p></div>
+        <div className="tempsCounterCard"><span>Activitats pendents</span><strong>{pendingRows.length}</strong><p>Encara queden activitats per activar la ciutat.</p></div>
+        <div className="tempsCounterCard"><span>Inscripcions totals</span><strong>{inscriptionsTotal}</strong><p>{inscriptionsWithActivity} registres vinculats amb ID WEB.</p></div>
+        <div className="tempsCounterCard"><span>Activitat avui</span><strong>{todayRows.length}</strong><p>{uniqueCount(todayRows, "espai")} espais actius avui.</p></div>
+      </section>
+
+      <section className="tempsInsightGrid">
+        <div className="tempsInsightCard district">
+          <div><p className="eyebrow">Districte més actiu</p><h2>{formatDistrictName(topDistrict)}</h2><p>{topDistrictValue} passis concentrats en aquest districte.</p></div>
+          <DistrictMiniMap district={topDistrict} />
+        </div>
+        <div className="tempsInsightCard"><p className="eyebrow">Espai més actiu</p><h2>{topSpace}</h2><p>{topSpaceValue} passis vinculats.</p></div>
+        <div className="tempsInsightCard"><p className="eyebrow">Categoria dominant</p><h2>{topCategory}</h2><p>{topCategoryValue} passis dins aquesta categoria.</p></div>
+      </section>
+
+      <section className="tempsMessage"><h2>{message}</h2><p>Mode oficina tècnica activat · dades publicades segons IMPORTAR = true</p></section>
+    </>
+  );
+}
+
 function App() {
   const [authenticated, setAuthenticated] = useState(false);
   const [userName, setUserName] = useState("");
@@ -4466,6 +4625,7 @@ function App() {
           <DataScopeControl dataScope={dataScope} setDataScope={setDataScope} rows={rows} />
         )}
         {view === "dashboard" && <DashboardView rows={scopedRows} inscripcions={inscripcions} />}
+        {view === "temps" && <TempsCapitalitatView rows={scopedRows} inscripcions={inscripcions} />}
         {view === "direccio" && canSeeView(role, "direccio") && (
           <DireccioView
             rows={scopedRows}
@@ -4509,8 +4669,10 @@ function App() {
 }
 
 const css = `
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap');
+
 * { box-sizing: border-box; }
-body { margin: 0; font-family: Inter, Arial, sans-serif; background: #f7f7f5; color: #111; }
+body { margin: 0; font-family: Montserrat, Arial, sans-serif; background: #f7f7f5; color: #111; }
 button, input { font: inherit; }
 button { cursor: pointer; }
 .app { display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; }
@@ -4722,7 +4884,7 @@ p { color: #666; }
 
 
 .leaflet-tooltip { border: 0 !important; border-radius: 12px !important; box-shadow: 0 8px 22px rgba(0,0,0,.12) !important; font-weight: 800; line-height: 1.25; padding: 8px 10px !important; }
-.leaflet-container { font-family: Inter, Arial, sans-serif; }
+.leaflet-container { font-family: Montserrat, Arial, sans-serif; }
 
 
 .spaceMapMarker { background: transparent; border: 0; }
@@ -5229,7 +5391,57 @@ body {
 .catalogFooter { border-top: 1px solid #eee; padding-top: 11px; display: flex; justify-content: space-between; gap: 12px; align-items: center; font-size: 12px; color: #666; font-weight: 900; }
 .catalogFooter strong { color: var(--cma-rose-kiss); }
 
+
+body, button, input, select, textarea { font-family: Montserrat, Arial, sans-serif; }
+
+.tempsHero { position: relative; display: grid; grid-template-columns: 220px minmax(0, 1fr) 220px; gap: 22px; align-items: stretch; background: #fff; border: 1px solid rgba(17,17,17,.10); border-radius: 34px; padding: 24px; box-shadow: 0 12px 34px rgba(17,17,17,.04); overflow: hidden; }
+.tempsHero::before { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 15% 10%, rgba(127,200,248,.18), transparent 28%), radial-gradient(circle at 86% 18%, rgba(255,99,146,.12), transparent 30%), radial-gradient(circle at 50% 90%, rgba(255,228,94,.18), transparent 34%); pointer-events: none; }
+.saintFigure { position: relative; z-index: 1; border: 1px solid #e7e7e2; background: rgba(255,255,255,.7); border-radius: 28px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between; min-height: 360px; }
+.saintFigure strong { display: block; font-size: 18px; letter-spacing: -0.04em; }
+.saintFigure span { color: #666; font-size: 12px; font-weight: 800; }
+.saintDrawing { position: relative; height: 270px; filter: grayscale(1); opacity: .78; }
+.saintDrawing * { position: absolute; left: 50%; transform: translateX(-50%); border: 3px solid #111; }
+.saintHalo { top: 12px; width: 96px; height: 96px; border-radius: 999px; border-width: 2px; }
+.saintHead { top: 56px; width: 54px; height: 62px; border-radius: 45%; background: #fff; }
+.saintBody { top: 122px; width: 96px; height: 128px; border-radius: 48px 48px 16px 16px; background: #fff; }
+.saintCape { top: 132px; width: 150px; height: 126px; border-radius: 80px 80px 18px 18px; border-top-color: transparent; background: transparent; }
+.saintPalm { top: 72px; left: 68%; width: 4px; height: 160px; border-width: 0 0 0 3px; transform: rotate(-18deg); }
+.saintPalm::after { content: ""; position: absolute; top: -4px; left: -28px; width: 58px; height: 42px; border: 2px solid #111; border-bottom: 0; border-radius: 100% 100% 0 0; transform: rotate(24deg); }
+.tempsCenter { position: relative; z-index: 1; text-align: center; display: flex; flex-direction: column; justify-content: center; padding: 26px; }
+.tempsCenter h2 { font-size: clamp(92px, 14vw, 190px); line-height: .8; margin: 0; letter-spacing: -0.09em; color: #111; }
+.tempsCenter > span { color: #555; font-size: 18px; font-weight: 900; margin-top: 12px; }
+.tempsProgress { height: 18px; background: #efefed; border-radius: 999px; overflow: hidden; margin: 32px 0 12px; border: 1px solid #ddd; }
+.tempsProgress i { display: block; height: 100%; background: linear-gradient(90deg, var(--cma-cool-sky), var(--cma-royal-gold), var(--cma-rose-kiss)); border-radius: inherit; }
+.tempsDates { display: flex; justify-content: space-between; gap: 12px; color: #777; font-weight: 900; font-size: 12px; text-transform: uppercase; }
+.tempsDates strong { color: #111; }
+.tempsBigCounters { display: grid; grid-template-columns: 1.35fr 1fr 1fr 1fr; gap: 14px; margin: 18px 0; }
+.tempsCounterCard { background: #fff; border: 1px solid rgba(17,17,17,.10); border-radius: 28px; padding: 20px; box-shadow: 0 10px 28px rgba(17,17,17,.035); min-height: 190px; display: flex; flex-direction: column; justify-content: space-between; }
+.tempsCounterCard.main { background: radial-gradient(circle at 10% 10%, rgba(255,228,94,.42), transparent 34%), radial-gradient(circle at 90% 30%, rgba(127,200,248,.35), transparent 34%), #111; color: #fff; }
+.tempsCounterCard span { color: #666; font-size: 12px; font-weight: 950; text-transform: uppercase; letter-spacing: .05em; }
+.tempsCounterCard.main span, .tempsCounterCard.main p { color: rgba(255,255,255,.72); }
+.tempsCounterCard strong { display: block; font-size: clamp(48px, 7vw, 92px); line-height: .85; letter-spacing: -0.08em; }
+.tempsCounterCard p { margin: 0; color: #666; font-weight: 700; }
+.tempsInsightGrid { display: grid; grid-template-columns: 1.45fr 1fr 1fr; gap: 14px; }
+.tempsInsightCard { background: #fff; border: 1px solid rgba(17,17,17,.10); border-radius: 28px; padding: 20px; min-height: 260px; box-shadow: 0 10px 28px rgba(17,17,17,.035); }
+.tempsInsightCard h2 { font-size: 32px; line-height: 1; letter-spacing: -0.055em; margin: 0 0 10px; }
+.tempsInsightCard p { margin: 0; }
+.tempsInsightCard.district { display: grid; grid-template-columns: .9fr 1.1fr; gap: 18px; align-items: center; }
+.tempsMiniMap { height: 250px; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(5, 1fr); gap: 6px; transform: rotate(-2deg); }
+.tempsMapCell { border: 1px solid #ddd; background: #f4f4f0; border-radius: 12px; display: grid; place-items: center; padding: 4px; text-align: center; color: #999; font-size: 8px; font-weight: 900; line-height: 1; }
+.tempsMapCell.active { background: linear-gradient(135deg, var(--cma-cool-sky), var(--cma-rose-kiss)); color: #fff; border-color: transparent; box-shadow: 0 12px 28px rgba(90,169,230,.24); transform: scale(1.08); }
+.tm-d1 { grid-column: 2; grid-row: 4; } .tm-d2 { grid-column: 2 / 4; grid-row: 3; } .tm-d3 { grid-column: 1 / 3; grid-row: 5; } .tm-d4 { grid-column: 1; grid-row: 4; } .tm-d5 { grid-column: 1 / 3; grid-row: 2; } .tm-d6 { grid-column: 3; grid-row: 2; } .tm-d7 { grid-column: 2 / 4; grid-row: 1; } .tm-d8 { grid-column: 4; grid-row: 1 / 3; } .tm-d9 { grid-column: 4; grid-row: 3; } .tm-d10 { grid-column: 4; grid-row: 4 / 6; }
+.tempsMessage { margin-top: 18px; background: radial-gradient(circle at 12% 20%, rgba(255,228,94,.34), transparent 30%), linear-gradient(135deg, #5AA9E6, #7FC8F8); color: #fff; border-radius: 30px; padding: 26px; }
+.tempsMessage h2 { color: #fff; font-size: clamp(28px, 4vw, 54px); line-height: .95; letter-spacing: -0.065em; margin: 0 0 10px; }
+.tempsMessage p { color: rgba(255,255,255,.78); margin: 0; font-weight: 800; }
+
 @media (max-width: 1000px) {
+
+  .tempsHero { grid-template-columns: 1fr; }
+  .saintFigure { min-height: 260px; }
+  .tempsBigCounters { grid-template-columns: 1fr; }
+  .tempsInsightGrid { grid-template-columns: 1fr; }
+  .tempsInsightCard.district { grid-template-columns: 1fr; }
+
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
   .sideMeta { position: static; margin-top: 24px; }
@@ -5427,7 +5639,7 @@ body {
 
 
 .leaflet-tooltip { border: 0 !important; border-radius: 12px !important; box-shadow: 0 8px 22px rgba(0,0,0,.12) !important; font-weight: 800; line-height: 1.25; padding: 8px 10px !important; }
-.leaflet-container { font-family: Inter, Arial, sans-serif; }
+.leaflet-container { font-family: Montserrat, Arial, sans-serif; }
 
 
 .spaceMapMarker { background: transparent; border: 0; }
@@ -5934,7 +6146,57 @@ body {
 .catalogFooter { border-top: 1px solid #eee; padding-top: 11px; display: flex; justify-content: space-between; gap: 12px; align-items: center; font-size: 12px; color: #666; font-weight: 900; }
 .catalogFooter strong { color: var(--cma-rose-kiss); }
 
-@media (max-width: 1000px) { .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
+
+body, button, input, select, textarea { font-family: Montserrat, Arial, sans-serif; }
+
+.tempsHero { position: relative; display: grid; grid-template-columns: 220px minmax(0, 1fr) 220px; gap: 22px; align-items: stretch; background: #fff; border: 1px solid rgba(17,17,17,.10); border-radius: 34px; padding: 24px; box-shadow: 0 12px 34px rgba(17,17,17,.04); overflow: hidden; }
+.tempsHero::before { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 15% 10%, rgba(127,200,248,.18), transparent 28%), radial-gradient(circle at 86% 18%, rgba(255,99,146,.12), transparent 30%), radial-gradient(circle at 50% 90%, rgba(255,228,94,.18), transparent 34%); pointer-events: none; }
+.saintFigure { position: relative; z-index: 1; border: 1px solid #e7e7e2; background: rgba(255,255,255,.7); border-radius: 28px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between; min-height: 360px; }
+.saintFigure strong { display: block; font-size: 18px; letter-spacing: -0.04em; }
+.saintFigure span { color: #666; font-size: 12px; font-weight: 800; }
+.saintDrawing { position: relative; height: 270px; filter: grayscale(1); opacity: .78; }
+.saintDrawing * { position: absolute; left: 50%; transform: translateX(-50%); border: 3px solid #111; }
+.saintHalo { top: 12px; width: 96px; height: 96px; border-radius: 999px; border-width: 2px; }
+.saintHead { top: 56px; width: 54px; height: 62px; border-radius: 45%; background: #fff; }
+.saintBody { top: 122px; width: 96px; height: 128px; border-radius: 48px 48px 16px 16px; background: #fff; }
+.saintCape { top: 132px; width: 150px; height: 126px; border-radius: 80px 80px 18px 18px; border-top-color: transparent; background: transparent; }
+.saintPalm { top: 72px; left: 68%; width: 4px; height: 160px; border-width: 0 0 0 3px; transform: rotate(-18deg); }
+.saintPalm::after { content: ""; position: absolute; top: -4px; left: -28px; width: 58px; height: 42px; border: 2px solid #111; border-bottom: 0; border-radius: 100% 100% 0 0; transform: rotate(24deg); }
+.tempsCenter { position: relative; z-index: 1; text-align: center; display: flex; flex-direction: column; justify-content: center; padding: 26px; }
+.tempsCenter h2 { font-size: clamp(92px, 14vw, 190px); line-height: .8; margin: 0; letter-spacing: -0.09em; color: #111; }
+.tempsCenter > span { color: #555; font-size: 18px; font-weight: 900; margin-top: 12px; }
+.tempsProgress { height: 18px; background: #efefed; border-radius: 999px; overflow: hidden; margin: 32px 0 12px; border: 1px solid #ddd; }
+.tempsProgress i { display: block; height: 100%; background: linear-gradient(90deg, var(--cma-cool-sky), var(--cma-royal-gold), var(--cma-rose-kiss)); border-radius: inherit; }
+.tempsDates { display: flex; justify-content: space-between; gap: 12px; color: #777; font-weight: 900; font-size: 12px; text-transform: uppercase; }
+.tempsDates strong { color: #111; }
+.tempsBigCounters { display: grid; grid-template-columns: 1.35fr 1fr 1fr 1fr; gap: 14px; margin: 18px 0; }
+.tempsCounterCard { background: #fff; border: 1px solid rgba(17,17,17,.10); border-radius: 28px; padding: 20px; box-shadow: 0 10px 28px rgba(17,17,17,.035); min-height: 190px; display: flex; flex-direction: column; justify-content: space-between; }
+.tempsCounterCard.main { background: radial-gradient(circle at 10% 10%, rgba(255,228,94,.42), transparent 34%), radial-gradient(circle at 90% 30%, rgba(127,200,248,.35), transparent 34%), #111; color: #fff; }
+.tempsCounterCard span { color: #666; font-size: 12px; font-weight: 950; text-transform: uppercase; letter-spacing: .05em; }
+.tempsCounterCard.main span, .tempsCounterCard.main p { color: rgba(255,255,255,.72); }
+.tempsCounterCard strong { display: block; font-size: clamp(48px, 7vw, 92px); line-height: .85; letter-spacing: -0.08em; }
+.tempsCounterCard p { margin: 0; color: #666; font-weight: 700; }
+.tempsInsightGrid { display: grid; grid-template-columns: 1.45fr 1fr 1fr; gap: 14px; }
+.tempsInsightCard { background: #fff; border: 1px solid rgba(17,17,17,.10); border-radius: 28px; padding: 20px; min-height: 260px; box-shadow: 0 10px 28px rgba(17,17,17,.035); }
+.tempsInsightCard h2 { font-size: 32px; line-height: 1; letter-spacing: -0.055em; margin: 0 0 10px; }
+.tempsInsightCard p { margin: 0; }
+.tempsInsightCard.district { display: grid; grid-template-columns: .9fr 1.1fr; gap: 18px; align-items: center; }
+.tempsMiniMap { height: 250px; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(5, 1fr); gap: 6px; transform: rotate(-2deg); }
+.tempsMapCell { border: 1px solid #ddd; background: #f4f4f0; border-radius: 12px; display: grid; place-items: center; padding: 4px; text-align: center; color: #999; font-size: 8px; font-weight: 900; line-height: 1; }
+.tempsMapCell.active { background: linear-gradient(135deg, var(--cma-cool-sky), var(--cma-rose-kiss)); color: #fff; border-color: transparent; box-shadow: 0 12px 28px rgba(90,169,230,.24); transform: scale(1.08); }
+.tm-d1 { grid-column: 2; grid-row: 4; } .tm-d2 { grid-column: 2 / 4; grid-row: 3; } .tm-d3 { grid-column: 1 / 3; grid-row: 5; } .tm-d4 { grid-column: 1; grid-row: 4; } .tm-d5 { grid-column: 1 / 3; grid-row: 2; } .tm-d6 { grid-column: 3; grid-row: 2; } .tm-d7 { grid-column: 2 / 4; grid-row: 1; } .tm-d8 { grid-column: 4; grid-row: 1 / 3; } .tm-d9 { grid-column: 4; grid-row: 3; } .tm-d10 { grid-column: 4; grid-row: 4 / 6; }
+.tempsMessage { margin-top: 18px; background: radial-gradient(circle at 12% 20%, rgba(255,228,94,.34), transparent 30%), linear-gradient(135deg, #5AA9E6, #7FC8F8); color: #fff; border-radius: 30px; padding: 26px; }
+.tempsMessage h2 { color: #fff; font-size: clamp(28px, 4vw, 54px); line-height: .95; letter-spacing: -0.065em; margin: 0 0 10px; }
+.tempsMessage p { color: rgba(255,255,255,.78); margin: 0; font-weight: 800; }
+
+@media (max-width: 1000px) {
+
+  .tempsHero { grid-template-columns: 1fr; }
+  .saintFigure { min-height: 260px; }
+  .tempsBigCounters { grid-template-columns: 1fr; }
+  .tempsInsightGrid { grid-template-columns: 1fr; }
+  .tempsInsightCard.district { grid-template-columns: 1fr; }
+ .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
 @media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
 
 /* Activitats · filtros, contador, imagen y exportación */
@@ -6218,7 +6480,7 @@ body {
 
 
 .leaflet-tooltip { border: 0 !important; border-radius: 12px !important; box-shadow: 0 8px 22px rgba(0,0,0,.12) !important; font-weight: 800; line-height: 1.25; padding: 8px 10px !important; }
-.leaflet-container { font-family: Inter, Arial, sans-serif; }
+.leaflet-container { font-family: Montserrat, Arial, sans-serif; }
 
 
 .spaceMapMarker { background: transparent; border: 0; }
@@ -6725,7 +6987,57 @@ body {
 .catalogFooter { border-top: 1px solid #eee; padding-top: 11px; display: flex; justify-content: space-between; gap: 12px; align-items: center; font-size: 12px; color: #666; font-weight: 900; }
 .catalogFooter strong { color: var(--cma-rose-kiss); }
 
+
+body, button, input, select, textarea { font-family: Montserrat, Arial, sans-serif; }
+
+.tempsHero { position: relative; display: grid; grid-template-columns: 220px minmax(0, 1fr) 220px; gap: 22px; align-items: stretch; background: #fff; border: 1px solid rgba(17,17,17,.10); border-radius: 34px; padding: 24px; box-shadow: 0 12px 34px rgba(17,17,17,.04); overflow: hidden; }
+.tempsHero::before { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 15% 10%, rgba(127,200,248,.18), transparent 28%), radial-gradient(circle at 86% 18%, rgba(255,99,146,.12), transparent 30%), radial-gradient(circle at 50% 90%, rgba(255,228,94,.18), transparent 34%); pointer-events: none; }
+.saintFigure { position: relative; z-index: 1; border: 1px solid #e7e7e2; background: rgba(255,255,255,.7); border-radius: 28px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between; min-height: 360px; }
+.saintFigure strong { display: block; font-size: 18px; letter-spacing: -0.04em; }
+.saintFigure span { color: #666; font-size: 12px; font-weight: 800; }
+.saintDrawing { position: relative; height: 270px; filter: grayscale(1); opacity: .78; }
+.saintDrawing * { position: absolute; left: 50%; transform: translateX(-50%); border: 3px solid #111; }
+.saintHalo { top: 12px; width: 96px; height: 96px; border-radius: 999px; border-width: 2px; }
+.saintHead { top: 56px; width: 54px; height: 62px; border-radius: 45%; background: #fff; }
+.saintBody { top: 122px; width: 96px; height: 128px; border-radius: 48px 48px 16px 16px; background: #fff; }
+.saintCape { top: 132px; width: 150px; height: 126px; border-radius: 80px 80px 18px 18px; border-top-color: transparent; background: transparent; }
+.saintPalm { top: 72px; left: 68%; width: 4px; height: 160px; border-width: 0 0 0 3px; transform: rotate(-18deg); }
+.saintPalm::after { content: ""; position: absolute; top: -4px; left: -28px; width: 58px; height: 42px; border: 2px solid #111; border-bottom: 0; border-radius: 100% 100% 0 0; transform: rotate(24deg); }
+.tempsCenter { position: relative; z-index: 1; text-align: center; display: flex; flex-direction: column; justify-content: center; padding: 26px; }
+.tempsCenter h2 { font-size: clamp(92px, 14vw, 190px); line-height: .8; margin: 0; letter-spacing: -0.09em; color: #111; }
+.tempsCenter > span { color: #555; font-size: 18px; font-weight: 900; margin-top: 12px; }
+.tempsProgress { height: 18px; background: #efefed; border-radius: 999px; overflow: hidden; margin: 32px 0 12px; border: 1px solid #ddd; }
+.tempsProgress i { display: block; height: 100%; background: linear-gradient(90deg, var(--cma-cool-sky), var(--cma-royal-gold), var(--cma-rose-kiss)); border-radius: inherit; }
+.tempsDates { display: flex; justify-content: space-between; gap: 12px; color: #777; font-weight: 900; font-size: 12px; text-transform: uppercase; }
+.tempsDates strong { color: #111; }
+.tempsBigCounters { display: grid; grid-template-columns: 1.35fr 1fr 1fr 1fr; gap: 14px; margin: 18px 0; }
+.tempsCounterCard { background: #fff; border: 1px solid rgba(17,17,17,.10); border-radius: 28px; padding: 20px; box-shadow: 0 10px 28px rgba(17,17,17,.035); min-height: 190px; display: flex; flex-direction: column; justify-content: space-between; }
+.tempsCounterCard.main { background: radial-gradient(circle at 10% 10%, rgba(255,228,94,.42), transparent 34%), radial-gradient(circle at 90% 30%, rgba(127,200,248,.35), transparent 34%), #111; color: #fff; }
+.tempsCounterCard span { color: #666; font-size: 12px; font-weight: 950; text-transform: uppercase; letter-spacing: .05em; }
+.tempsCounterCard.main span, .tempsCounterCard.main p { color: rgba(255,255,255,.72); }
+.tempsCounterCard strong { display: block; font-size: clamp(48px, 7vw, 92px); line-height: .85; letter-spacing: -0.08em; }
+.tempsCounterCard p { margin: 0; color: #666; font-weight: 700; }
+.tempsInsightGrid { display: grid; grid-template-columns: 1.45fr 1fr 1fr; gap: 14px; }
+.tempsInsightCard { background: #fff; border: 1px solid rgba(17,17,17,.10); border-radius: 28px; padding: 20px; min-height: 260px; box-shadow: 0 10px 28px rgba(17,17,17,.035); }
+.tempsInsightCard h2 { font-size: 32px; line-height: 1; letter-spacing: -0.055em; margin: 0 0 10px; }
+.tempsInsightCard p { margin: 0; }
+.tempsInsightCard.district { display: grid; grid-template-columns: .9fr 1.1fr; gap: 18px; align-items: center; }
+.tempsMiniMap { height: 250px; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(5, 1fr); gap: 6px; transform: rotate(-2deg); }
+.tempsMapCell { border: 1px solid #ddd; background: #f4f4f0; border-radius: 12px; display: grid; place-items: center; padding: 4px; text-align: center; color: #999; font-size: 8px; font-weight: 900; line-height: 1; }
+.tempsMapCell.active { background: linear-gradient(135deg, var(--cma-cool-sky), var(--cma-rose-kiss)); color: #fff; border-color: transparent; box-shadow: 0 12px 28px rgba(90,169,230,.24); transform: scale(1.08); }
+.tm-d1 { grid-column: 2; grid-row: 4; } .tm-d2 { grid-column: 2 / 4; grid-row: 3; } .tm-d3 { grid-column: 1 / 3; grid-row: 5; } .tm-d4 { grid-column: 1; grid-row: 4; } .tm-d5 { grid-column: 1 / 3; grid-row: 2; } .tm-d6 { grid-column: 3; grid-row: 2; } .tm-d7 { grid-column: 2 / 4; grid-row: 1; } .tm-d8 { grid-column: 4; grid-row: 1 / 3; } .tm-d9 { grid-column: 4; grid-row: 3; } .tm-d10 { grid-column: 4; grid-row: 4 / 6; }
+.tempsMessage { margin-top: 18px; background: radial-gradient(circle at 12% 20%, rgba(255,228,94,.34), transparent 30%), linear-gradient(135deg, #5AA9E6, #7FC8F8); color: #fff; border-radius: 30px; padding: 26px; }
+.tempsMessage h2 { color: #fff; font-size: clamp(28px, 4vw, 54px); line-height: .95; letter-spacing: -0.065em; margin: 0 0 10px; }
+.tempsMessage p { color: rgba(255,255,255,.78); margin: 0; font-weight: 800; }
+
 @media (max-width: 1000px) {
+
+  .tempsHero { grid-template-columns: 1fr; }
+  .saintFigure { min-height: 260px; }
+  .tempsBigCounters { grid-template-columns: 1fr; }
+  .tempsInsightGrid { grid-template-columns: 1fr; }
+  .tempsInsightCard.district { grid-template-columns: 1fr; }
+
   .activitySearchRow {
     grid-template-columns: 1fr;
   }
@@ -6764,4 +7076,4 @@ body {
 `;
 
 
-createRoot(document.getElementById("root")).render(<App />);
+createRoot(document.getElementById("root")).render(<Ap
