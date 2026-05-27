@@ -4395,12 +4395,17 @@ function getMostActiveEntry(data) {
 }
 
 function getDistrictSlug(value) {
-  const text = normalizeLooseText(value);
+  const text = normalizeLooseText(value)
+    .replace(/^\d+\s*/, "")
+    .replace(/\bde\b/g, "")
+    .replace(/\bdel\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 
   if (text.includes("ciutat vella")) return "ciutat-vella";
   if (text.includes("eixample")) return "eixample";
   if (text.includes("sants") || text.includes("montjuic")) return "sants-montjuic";
-  if (text.includes("les corts")) return "les-corts";
+  if (text.includes("les corts") || text.includes("corts")) return "les-corts";
   if (text.includes("sarria") || text.includes("gervasi")) return "sarria-sant-gervasi";
   if (text.includes("gracia")) return "gracia";
   if (text.includes("horta") || text.includes("guinardo")) return "horta-guinardo";
@@ -4410,6 +4415,12 @@ function getDistrictSlug(value) {
 
   return "ciutat-vella";
 }
+
+function getDistrictImagePath(value) {
+  return `/assets/temps-capitalitat/districtes/mapa-${getDistrictSlug(value)}.png`;
+}
+
+
 
 function TempsSparkline({ tone = "blue" }) {
   return (
@@ -4480,7 +4491,7 @@ function TempsCapitalitatView({ rows, inscripcions = [] }) {
 
   const todayRows = rows.filter((row) => row.dataInici === today);
   const districtSlug = getDistrictSlug(topDistrict);
-  const districtImage = `/assets/temps-capitalitat/districtes/${districtSlug}.png`;
+  const districtImage = getDistrictImagePath(topDistrict);
 
   const topDistrictPercent = rows.length ? Math.round((topDistrictValue / rows.length) * 100) : 0;
   const topCategoryPercent = rows.length ? Math.round((topCategoryValue / rows.length) * 100) : 0;
@@ -4675,7 +4686,16 @@ function TempsCapitalitatView({ rows, inscripcions = [] }) {
           </div>
 
           <div className="tempsV2MapImageWrap">
-            <img src={districtImage} alt={`Mapa del districte més actiu: ${topDistrict}`} />
+            <img
+              src={districtImage}
+              alt={`Mapa del districte més actiu: ${topDistrict}`}
+              onError={(event) => {
+                const fallback = "/assets/temps-capitalitat/districtes/mapa-ciutat-vella.png";
+                if (event.currentTarget.src.includes("mapa-ciutat-vella.png")) return;
+                event.currentTarget.src = fallback;
+              }}
+            />
+            <small className="tempsMapDebug">{districtImage}</small>
           </div>
         </article>
 
