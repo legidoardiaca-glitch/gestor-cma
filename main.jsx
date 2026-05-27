@@ -7074,7 +7074,5 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
 }
 
 `;
+
 createRoot(document.getElementById("root")).render(<App />);
-
-
-createRoot(document.getElementById("root")).render(<Ap
