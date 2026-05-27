@@ -4356,11 +4356,36 @@ function DataScopeControl({ dataScope, setDataScope, rows }) {
 
 
 
+
+
 function dateDiffDays(start, end) {
   const a = new Date(`${start}T12:00:00`);
   const b = new Date(`${end}T12:00:00`);
   if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 0;
   return Math.round((b - a) / 86400000);
+}
+
+function getCountdownParts(targetDate, now = new Date()) {
+  const target = new Date(targetDate);
+  const diff = Math.max(0, target.getTime() - now.getTime());
+
+  const totalSeconds = Math.floor(diff / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  return {
+    totalSeconds,
+    days,
+    hours,
+    minutes,
+    seconds,
+  };
+}
+
+function pad2(value) {
+  return String(value).padStart(2, "0");
 }
 
 function getMostActiveEntry(data) {
@@ -4369,49 +4394,46 @@ function getMostActiveEntry(data) {
     .sort((a, b) => b[1] - a[1])[0] || ["Sense dades", 0];
 }
 
-function DistrictMiniMap({ district }) {
-  const normalized = normalizeLooseText(district);
-  const cells = [
-    ["ciutat vella", "Ciutat Vella", "tm-d1"],
-    ["eixample", "Eixample", "tm-d2"],
-    ["sants montjuic", "Sants-Montjuïc", "tm-d3"],
-    ["les corts", "Les Corts", "tm-d4"],
-    ["sarria sant gervasi", "Sarrià", "tm-d5"],
-    ["gracia", "Gràcia", "tm-d6"],
-    ["horta guinardo", "Horta", "tm-d7"],
-    ["nou barris", "Nou Barris", "tm-d8"],
-    ["sant andreu", "Sant Andreu", "tm-d9"],
-    ["sant marti", "Sant Martí", "tm-d10"],
-  ];
+function getDistrictSlug(value) {
+  const text = normalizeLooseText(value);
 
+  if (text.includes("ciutat vella")) return "ciutat-vella";
+  if (text.includes("eixample")) return "eixample";
+  if (text.includes("sants") || text.includes("montjuic")) return "sants-montjuic";
+  if (text.includes("les corts")) return "les-corts";
+  if (text.includes("sarria") || text.includes("gervasi")) return "sarria-sant-gervasi";
+  if (text.includes("gracia")) return "gracia";
+  if (text.includes("horta") || text.includes("guinardo")) return "horta-guinardo";
+  if (text.includes("nou barris")) return "nou-barris";
+  if (text.includes("sant andreu")) return "sant-andreu";
+  if (text.includes("sant marti")) return "sant-marti";
+
+  return "ciutat-vella";
+}
+
+function TempsSparkline({ tone = "blue" }) {
   return (
-    <div className="tempsMiniMap">
-      {cells.map(([key, label, className]) => {
-        const active = normalized && (normalized.includes(key) || key.includes(normalized));
-        return (
-          <div key={key} className={`tempsMapCell ${className} ${active ? "active" : ""}`}>
-            <span>{label}</span>
-          </div>
-        );
-      })}
-    </div>
+    <svg className={`tempsSparkline ${tone}`} viewBox="0 0 160 54" aria-hidden="true">
+      <path d="M3 45 C18 42, 20 28, 34 30 C48 32, 48 15, 64 19 C82 24, 76 8, 96 12 C116 17, 112 31, 132 23 C146 17, 148 8, 157 6" />
+    </svg>
   );
 }
 
-function SaintFigure({ side, name, subtitle }) {
+function TempsConfetti({ particles }) {
   return (
-    <div className={`saintFigure ${side}`}>
-      <div className="saintDrawing">
-        <div className="saintHalo" />
-        <div className="saintHead" />
-        <div className="saintBody" />
-        <div className="saintCape" />
-        <div className="saintPalm" />
-      </div>
-      <div>
-        <strong>{name}</strong>
-        <span>{subtitle}</span>
-      </div>
+    <div className="tempsConfettiLayer" aria-hidden="true">
+      {particles.map((particle) => (
+        <i
+          key={particle.id}
+          style={{
+            left: `${particle.x}%`,
+            top: `${particle.y}%`,
+            transform: `rotate(${particle.r}deg)`,
+            background: particle.color,
+            animationDuration: `${particle.d}ms`,
+          }}
+        />
+      ))}
     </div>
   );
 }
@@ -4419,11 +4441,29 @@ function SaintFigure({ side, name, subtitle }) {
 function TempsCapitalitatView({ rows, inscripcions = [] }) {
   const startDate = "2026-02-12";
   const endDate = "2026-12-13";
-  const today = toLocalISODate(new Date());
+  const countdownTarget = "2026-12-13T23:59:59";
+  const today = toLocalISODate(now);
+
+  const [particles, setParticles] = useState([]);
+  const [funMessage, setFunMessage] = useState({
+    title: "La ciutat és l’escenari.",
+    text: "Mou el ratolí pel comptador o clica els números per activar el mode oficina tècnica.",
+    tone: "blue",
+  });
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNow(new Date());
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   const totalDays = Math.max(1, dateDiffDays(startDate, endDate));
   const elapsedDays = Math.max(0, Math.min(totalDays, dateDiffDays(startDate, today)));
   const remainingDays = Math.max(0, dateDiffDays(today, endDate));
+  const countdown = getCountdownParts(countdownTarget, now);
   const progress = Math.max(0, Math.min(100, Math.round((elapsedDays / totalDays) * 100)));
 
   const completedRows = rows.filter((row) => isValidDateString(row.dataInici) && row.dataInici < today);
@@ -4438,48 +4478,252 @@ function TempsCapitalitatView({ rows, inscripcions = [] }) {
   const [topCategory, topCategoryValue] = getMostActiveEntry(countBy(rows, "categoria"));
 
   const todayRows = rows.filter((row) => row.dataInici === today);
-  const message = remainingDays > 0
-    ? "La ciutat és l’escenari. Seguim activant el programa."
-    : "La Capitalitat ha arribat al seu tancament: toca celebrar i fer balanç.";
+  const districtSlug = getDistrictSlug(topDistrict);
+  const districtImage = `/assets/temps-capitalitat/districtes/${districtSlug}.png`;
+
+  const topDistrictPercent = rows.length ? Math.round((topDistrictValue / rows.length) * 100) : 0;
+  const topCategoryPercent = rows.length ? Math.round((topCategoryValue / rows.length) * 100) : 0;
+
+  const colors = ["#5AA9E6", "#7FC8F8", "#FFE45E", "#FF6392", "#B9FBC0", "#CDB4DB"];
+
+  function addConfetti(x = 50, y = 40, amount = 14) {
+    const now = Date.now();
+    const newParticles = Array.from({ length: amount }, (_, index) => ({
+      id: `${now}-${index}-${Math.random()}`,
+      x: Math.max(4, Math.min(96, x + (Math.random() - 0.5) * 16)),
+      y: Math.max(4, Math.min(82, y + (Math.random() - 0.5) * 10)),
+      r: Math.round(Math.random() * 360),
+      d: 850 + Math.round(Math.random() * 650),
+      color: colors[Math.floor(Math.random() * colors.length)],
+    }));
+
+    setParticles((current) => [...current.slice(-80), ...newParticles]);
+    window.setTimeout(() => {
+      setParticles((current) => current.filter((particle) => !newParticles.some((p) => p.id === particle.id)));
+    }, 1800);
+  }
+
+  function handleHeroMove(event) {
+    if (Math.random() > 0.08) return;
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * 100;
+    const y = ((event.clientY - rect.top) / rect.height) * 100;
+    addConfetti(x, y, 2);
+  }
+
+  function activateMessage(message, x = 50, y = 50) {
+    setFunMessage(message);
+    addConfetti(x, y, 26);
+  }
+
+  const counters = [
+    {
+      className: "dark",
+      label: "Activitats finalitzades",
+      value: completedRows.length,
+      text: `${activeProgramPercent}% del programa ja ha passat.`,
+      tone: "blue",
+      message: {
+        title: "Tram superat.",
+        text: "Tot això ja forma part de la memòria de la Capitalitat. Seguim construint relat.",
+        tone: "blue",
+      },
+    },
+    {
+      label: "Activitats pendents",
+      value: pendingRows.length,
+      text: "Encara queda Capitalitat per activar.",
+      tone: "yellow",
+      message: {
+        title: "Queda Capitalitat.",
+        text: "Respira. Encara hi ha marge, però el calendari ja comença a mirar-nos fixament.",
+        tone: "yellow",
+      },
+    },
+    {
+      label: "Inscripcions totals",
+      value: inscriptionsTotal,
+      text: `${inscriptionsWithActivity} registres vinculats amb ID WEB.`,
+      tone: "pink",
+      message: {
+        title: "La gent està entrant.",
+        text: "Cada inscripció és una petita prova que la ciutat està escoltant.",
+        tone: "pink",
+      },
+    },
+    {
+      label: "Activitat avui",
+      value: todayRows.length,
+      text: `${uniqueCount(todayRows, "espai")} espais actius avui.`,
+      tone: "green",
+      message: {
+        title: "La ciutat avui batega.",
+        text: "Avui el programa surt del full i passa a l’espai públic.",
+        tone: "green",
+      },
+    },
+  ];
 
   return (
     <>
-      <Top title="Temps de Capitalitat" subtitle="Compte enrere, activació del programa i pols cultural entre Santa Eulàlia i Santa Llúcia." />
+      <Top
+        title="Temps de Capitalitat"
+        subtitle="Compte enrere, activació del programa i pols cultural entre Santa Eulàlia i Santa Llúcia."
+      />
 
-      <section className="tempsHero">
-        <SaintFigure side="left" name="Santa Eulàlia" subtitle="Inici del cicle · Febrer" />
-        <div className="tempsCenter">
-          <p className="eyebrow">Santa Eulàlia → Santa Llúcia</p>
-          <h2>{remainingDays}</h2>
-          <span>dies fins al 13 de desembre</span>
-          <div className="tempsProgress"><i style={{ width: `${progress}%` }} /></div>
-          <div className="tempsDates">
-            <span>12 febrer</span><strong>{progress}% del cicle</strong><span>13 desembre</span>
+      <section
+        className="tempsV2Hero tempsInteractiveHero"
+        onMouseMove={handleHeroMove}
+        onClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          activateMessage(
+            {
+              title: "Mode compte enrere activat.",
+              text: `${countdown.days} dies, ${pad2(countdown.hours)} hores, ${pad2(countdown.minutes)} minuts i ${pad2(countdown.seconds)} segons fins a Santa Llúcia.`,
+              tone: "pink",
+            },
+            ((event.clientX - rect.left) / rect.width) * 100,
+            ((event.clientY - rect.top) / rect.height) * 100
+          );
+        }}
+      >
+        <TempsConfetti particles={particles} />
+
+        <img
+          className="tempsSaintImage left"
+          src="/assets/temps-capitalitat/santa-eulalia.png"
+          alt="Santa Eulàlia"
+        />
+
+        <div className="tempsV2Center">
+          <p className="eyebrow">De Santa Eulàlia a Santa Llúcia</p>
+          <button
+            type="button"
+            className="tempsDaysButton tempsCountdownButton"
+            onClick={(event) => {
+              event.stopPropagation();
+              activateMessage({
+                title: "Santa Llúcia s’acosta.",
+                text: `${progress}% del cicle recorregut. Queden ${countdown.days} dies, ${pad2(countdown.hours)} hores, ${pad2(countdown.minutes)} minuts i ${pad2(countdown.seconds)} segons.`,
+                tone: "pink",
+              });
+            }}
+          >
+            <span className="countDays">{countdown.days}</span>
+            <span className="countUnits">
+              <b>{pad2(countdown.hours)}</b>
+              <em>h</em>
+              <b>{pad2(countdown.minutes)}</b>
+              <em>min</em>
+              <b>{pad2(countdown.seconds)}</b>
+              <em>s</em>
+            </span>
+          </button>
+          <strong>compte enrere fins al 13 de desembre</strong>
+
+          <div className="tempsV2Progress">
+            <i style={{ width: `${progress}%` }} />
+          </div>
+
+          <div className="tempsV2Dates">
+            <span>Santa Eulàlia · febrer</span>
+            <b>{progress}% del cicle</b>
+            <span>Santa Llúcia · 13 desembre</span>
           </div>
         </div>
-        <SaintFigure side="right" name="Santa Llúcia" subtitle="Tancament del cicle · 13 desembre" />
+
+        <img
+          className="tempsSaintImage right"
+          src="/assets/temps-capitalitat/santa-llucia.png"
+          alt="Santa Llúcia"
+        />
       </section>
 
-      <section className="tempsBigCounters">
-        <div className="tempsCounterCard main"><span>Activitats finalitzades</span><strong>{completedRows.length}</strong><p>{activeProgramPercent}% del programa ja ha passat.</p></div>
-        <div className="tempsCounterCard"><span>Activitats pendents</span><strong>{pendingRows.length}</strong><p>Encara queden activitats per activar la ciutat.</p></div>
-        <div className="tempsCounterCard"><span>Inscripcions totals</span><strong>{inscriptionsTotal}</strong><p>{inscriptionsWithActivity} registres vinculats amb ID WEB.</p></div>
-        <div className="tempsCounterCard"><span>Activitat avui</span><strong>{todayRows.length}</strong><p>{uniqueCount(todayRows, "espai")} espais actius avui.</p></div>
+      <section className="tempsV2Counters">
+        {counters.map((counter, index) => (
+          <button
+            key={counter.label}
+            type="button"
+            className={`tempsV2Counter ${counter.className || ""} interactive ${counter.tone}`}
+            onClick={() => activateMessage(counter.message, 22 + index * 18, 55)}
+          >
+            <span>{counter.label}</span>
+            <strong>{counter.value}</strong>
+            <p>{counter.text}</p>
+            <TempsSparkline tone={counter.tone} />
+          </button>
+        ))}
       </section>
 
-      <section className="tempsInsightGrid">
-        <div className="tempsInsightCard district">
-          <div><p className="eyebrow">Districte més actiu</p><h2>{formatDistrictName(topDistrict)}</h2><p>{topDistrictValue} passis concentrats en aquest districte.</p></div>
-          <DistrictMiniMap district={topDistrict} />
+      <section className="tempsV2MainGrid">
+        <article
+          className="tempsV2MapCard interactiveMap"
+          onMouseEnter={() =>
+            setFunMessage({
+              title: `${formatDistrictName(topDistrict)} lidera el mapa.`,
+              text: `${topDistrictValue} passis i ${topDistrictPercent}% del programa publicat. El districte guanyador agafa color.`,
+              tone: "pink",
+            })
+          }
+        >
+          <div className="tempsV2MapText">
+            <p className="eyebrow">Districte més actiu</p>
+            <h2>{formatDistrictName(topDistrict)}</h2>
+            <p>{topDistrictValue} passis · {topDistrictPercent}% del programa publicat.</p>
+          </div>
+
+          <div className="tempsV2MapImageWrap">
+            <img src={districtImage} alt={`Mapa del districte més actiu: ${topDistrict}`} />
+          </div>
+        </article>
+
+        <div className="tempsV2SideCards">
+          <button
+            type="button"
+            className="tempsV2InsightCard interactive"
+            onClick={() =>
+              activateMessage({
+                title: `${topSpace} és el motor.`,
+                text: `${topSpaceValue} passis vinculats. Ara mateix és l’espai més actiu del programa.`,
+                tone: "blue",
+              }, 76, 62)
+            }
+          >
+            <p className="eyebrow">Espai més actiu</p>
+            <h2>{topSpace}</h2>
+            <p>{topSpaceValue} passis vinculats.</p>
+          </button>
+
+          <button
+            type="button"
+            className="tempsV2InsightCard interactive"
+            onClick={() =>
+              activateMessage({
+                title: `${topCategory} domina la setmana.`,
+                text: `${topCategoryValue} passis i ${topCategoryPercent}% del programa. Una pista clara del pols cultural.`,
+                tone: "yellow",
+              }, 78, 74)
+            }
+          >
+            <p className="eyebrow">Categoria dominant</p>
+            <h2>{topCategory}</h2>
+            <p>{topCategoryValue} passis · {topCategoryPercent}% del programa.</p>
+          </button>
         </div>
-        <div className="tempsInsightCard"><p className="eyebrow">Espai més actiu</p><h2>{topSpace}</h2><p>{topSpaceValue} passis vinculats.</p></div>
-        <div className="tempsInsightCard"><p className="eyebrow">Categoria dominant</p><h2>{topCategory}</h2><p>{topCategoryValue} passis dins aquesta categoria.</p></div>
       </section>
 
-      <section className="tempsMessage"><h2>{message}</h2><p>Mode oficina tècnica activat · dades publicades segons IMPORTAR = true</p></section>
+      <section className={`tempsV2Quote ${funMessage.tone}`}>
+        <div>
+          <span>“</span>
+          <h2>{funMessage.title}</h2>
+        </div>
+        <p>{funMessage.text}</p>
+      </section>
     </>
   );
 }
+
 
 function App() {
   const [authenticated, setAuthenticated] = useState(false);
@@ -7073,6 +7317,548 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
   }
 }
 
+
+/* Temps de Capitalitat V2 visual */
+.tempsHero,
+.tempsBigCounters,
+.tempsInsightGrid,
+.tempsMessage {
+  display: none !important;
+}
+
+.tempsV2Hero {
+  position: relative;
+  min-height: 460px;
+  background:
+    radial-gradient(circle at 10% 12%, rgba(90,169,230,.18), transparent 28%),
+    radial-gradient(circle at 92% 15%, rgba(255,99,146,.14), transparent 30%),
+    radial-gradient(circle at 52% 90%, rgba(255,228,94,.16), transparent 36%),
+    #fff;
+  border: 1px solid rgba(17,17,17,.10);
+  border-radius: 34px;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr) 260px;
+  align-items: stretch;
+  box-shadow: 0 18px 46px rgba(17,17,17,.045);
+}
+
+.tempsSaintImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: grayscale(1) contrast(1.06);
+  opacity: .84;
+  mix-blend-mode: multiply;
+}
+
+.tempsSaintImage.left {
+  object-position: center;
+  mask-image: linear-gradient(90deg, black 62%, transparent 100%);
+}
+
+.tempsSaintImage.right {
+  object-position: center;
+  mask-image: linear-gradient(270deg, black 62%, transparent 100%);
+}
+
+.tempsV2Center {
+  position: relative;
+  z-index: 2;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 38px 10px;
+}
+
+.tempsV2Center .eyebrow {
+  color: #b34565;
+  font-weight: 950;
+}
+
+.tempsV2Center h2 {
+  margin: 0;
+  font-size: clamp(112px, 16vw, 230px);
+  line-height: .78;
+  letter-spacing: -0.105em;
+  color: #111;
+}
+
+.tempsV2Center > strong {
+  display: block;
+  margin-top: 12px;
+  color: #333;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+
+.tempsV2Progress {
+  height: 18px;
+  width: min(720px, 90%);
+  margin: 34px auto 12px;
+  border-radius: 999px;
+  background: #efefed;
+  border: 1px solid rgba(17,17,17,.10);
+  overflow: hidden;
+}
+
+.tempsV2Progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--cma-cool-sky), var(--cma-royal-gold), var(--cma-rose-kiss));
+  box-shadow: 0 8px 24px rgba(255,99,146,.22);
+}
+
+.tempsV2Dates {
+  width: min(720px, 90%);
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #777;
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.tempsV2Dates b {
+  color: #111;
+}
+
+.tempsV2Counters {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr 1fr 1fr;
+  gap: 14px;
+  margin: 18px 0;
+}
+
+.tempsV2Counter {
+  min-height: 200px;
+  background:
+    radial-gradient(circle at 86% 85%, rgba(90,169,230,.13), transparent 34%),
+    #fff;
+  border: 1px solid rgba(17,17,17,.10);
+  border-radius: 28px;
+  padding: 22px;
+  box-shadow: 0 12px 30px rgba(17,17,17,.035);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.tempsV2Counter.dark {
+  background:
+    radial-gradient(circle at 86% 35%, rgba(90,169,230,.28), transparent 32%),
+    #111;
+  color: #fff;
+}
+
+.tempsV2Counter span {
+  color: #666;
+  font-size: 12px;
+  font-weight: 950;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.tempsV2Counter.dark span,
+.tempsV2Counter.dark p {
+  color: rgba(255,255,255,.76);
+}
+
+.tempsV2Counter strong {
+  display: block;
+  font-size: clamp(52px, 7vw, 96px);
+  line-height: .82;
+  letter-spacing: -0.09em;
+}
+
+.tempsV2Counter p {
+  margin: 0;
+  color: #666;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.tempsV2MainGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(340px, .65fr);
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.tempsV2MapCard {
+  background: #fff;
+  border: 1px solid rgba(17,17,17,.10);
+  border-radius: 30px;
+  padding: 22px;
+  display: grid;
+  grid-template-columns: .42fr .58fr;
+  gap: 18px;
+  align-items: center;
+  min-height: 460px;
+  box-shadow: 0 12px 30px rgba(17,17,17,.035);
+}
+
+.tempsV2MapText h2 {
+  font-size: clamp(34px, 4.5vw, 64px);
+  line-height: .9;
+  letter-spacing: -0.07em;
+  margin: 0 0 12px;
+}
+
+.tempsV2MapText p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.tempsV2MapImageWrap {
+  width: 100%;
+  aspect-ratio: 1.35 / 1;
+  border-radius: 26px;
+  overflow: hidden;
+  background: #f4f4f0;
+}
+
+.tempsV2MapImageWrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transform: scale(1.02);
+}
+
+.tempsV2SideCards {
+  display: grid;
+  gap: 14px;
+}
+
+.tempsV2InsightCard {
+  background: #fff;
+  border: 1px solid rgba(17,17,17,.10);
+  border-radius: 30px;
+  padding: 22px;
+  box-shadow: 0 12px 30px rgba(17,17,17,.035);
+  min-height: 223px;
+}
+
+.tempsV2InsightCard h2 {
+  font-size: clamp(26px, 3vw, 44px);
+  line-height: .95;
+  letter-spacing: -0.065em;
+  margin: 0 0 12px;
+}
+
+.tempsV2InsightCard p {
+  margin: 0;
+}
+
+.tempsV2Quote {
+  background:
+    radial-gradient(circle at 10% 20%, rgba(255,228,94,.24), transparent 30%),
+    linear-gradient(135deg, #5AA9E6, #7FC8F8);
+  color: #fff;
+  border-radius: 32px;
+  padding: 26px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 28px;
+}
+
+.tempsV2Quote div {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.tempsV2Quote span {
+  font-size: 76px;
+  line-height: .8;
+  color: rgba(255,255,255,.55);
+}
+
+.tempsV2Quote h2 {
+  color: #fff;
+  font-size: clamp(28px, 4vw, 56px);
+  line-height: .95;
+  letter-spacing: -0.07em;
+  margin: 0;
+}
+
+.tempsV2Quote p {
+  color: rgba(255,255,255,.78);
+  margin: 0;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+@media (max-width: 1000px) {
+  .tempsV2Hero {
+    grid-template-columns: 1fr;
+  }
+
+  .tempsSaintImage {
+    display: none;
+  }
+
+  .tempsV2Counters,
+  .tempsV2MainGrid,
+  .tempsV2MapCard {
+    grid-template-columns: 1fr;
+  }
+
+  .tempsV2Quote {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .tempsV2Quote p {
+    white-space: normal;
+  }
+}
+
+
+/* Temps de Capitalitat V3 · interacció i jajas elegants */
+.tempsInteractiveHero {
+  cursor: crosshair;
+}
+
+.tempsConfettiLayer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+  overflow: hidden;
+}
+
+.tempsConfettiLayer i {
+  position: absolute;
+  width: 9px;
+  height: 14px;
+  border-radius: 3px;
+  opacity: .95;
+  animation-name: tempsConfettiFall;
+  animation-timing-function: cubic-bezier(.22,.8,.28,1);
+  animation-fill-mode: forwards;
+}
+
+@keyframes tempsConfettiFall {
+  0% {
+    opacity: 1;
+    translate: 0 0;
+    scale: 1;
+  }
+  100% {
+    opacity: 0;
+    translate: calc((50vw - 50%) * .08) 130px;
+    scale: .4;
+  }
+}
+
+.tempsDaysButton {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: clamp(112px, 16vw, 230px);
+  line-height: .78;
+  letter-spacing: -0.105em;
+  color: #111;
+  font-weight: 950;
+  cursor: pointer;
+  padding: 0;
+  transition: transform .18s ease, filter .18s ease;
+}
+
+.tempsDaysButton:hover {
+  transform: scale(1.035) rotate(-1deg);
+  filter: drop-shadow(0 20px 28px rgba(255,99,146,.20));
+}
+
+.tempsV2Counter.interactive,
+.tempsV2InsightCard.interactive {
+  border: 1px solid rgba(17,17,17,.10);
+  text-align: left;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+
+.tempsV2Counter.interactive:hover,
+.tempsV2InsightCard.interactive:hover {
+  transform: translateY(-4px);
+  border-color: rgba(90,169,230,.42);
+  box-shadow: 0 18px 42px rgba(90,169,230,.14);
+}
+
+.tempsV2Counter.interactive::after,
+.tempsV2InsightCard.interactive::after {
+  content: "clic";
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  background: rgba(17,17,17,.06);
+  color: #555;
+  border-radius: 999px;
+  padding: 6px 9px;
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.tempsV2Counter.dark.interactive::after {
+  background: rgba(255,255,255,.14);
+  color: rgba(255,255,255,.72);
+}
+
+.tempsSparkline {
+  position: absolute;
+  right: 18px;
+  bottom: 14px;
+  width: 45%;
+  height: 58px;
+  opacity: .82;
+  overflow: visible;
+}
+
+.tempsSparkline path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 250;
+  stroke-dashoffset: 250;
+  animation: tempsDrawLine 1.8s ease forwards;
+}
+
+.tempsV2Counter:hover .tempsSparkline path {
+  animation: tempsDrawLine .9s ease forwards;
+}
+
+@keyframes tempsDrawLine {
+  to { stroke-dashoffset: 0; }
+}
+
+.tempsSparkline.blue { color: #5AA9E6; }
+.tempsSparkline.yellow { color: #E9A90D; }
+.tempsSparkline.pink { color: #FF6392; }
+.tempsSparkline.green { color: #48A868; }
+
+.interactiveMap {
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+
+.interactiveMap:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 20px 52px rgba(255,99,146,.12);
+}
+
+.interactiveMap:hover .tempsV2MapImageWrap img {
+  transform: scale(1.055);
+}
+
+.tempsV2MapImageWrap img {
+  transition: transform .45s ease;
+}
+
+.tempsV2Quote {
+  transition: background .25s ease, transform .18s ease;
+}
+
+.tempsV2Quote.blue {
+  background:
+    radial-gradient(circle at 12% 20%, rgba(255,228,94,.24), transparent 30%),
+    linear-gradient(135deg, #5AA9E6, #7FC8F8);
+}
+
+.tempsV2Quote.pink {
+  background:
+    radial-gradient(circle at 12% 20%, rgba(255,228,94,.28), transparent 30%),
+    linear-gradient(135deg, #FF6392, #7FC8F8);
+}
+
+.tempsV2Quote.yellow {
+  background:
+    radial-gradient(circle at 80% 20%, rgba(255,99,146,.16), transparent 30%),
+    linear-gradient(135deg, #FFE45E, #7FC8F8);
+  color: #111;
+}
+
+.tempsV2Quote.yellow h2,
+.tempsV2Quote.yellow p {
+  color: #111;
+}
+
+.tempsV2Quote.green {
+  background:
+    radial-gradient(circle at 80% 20%, rgba(255,228,94,.24), transparent 30%),
+    linear-gradient(135deg, #B9FBC0, #7FC8F8);
+  color: #111;
+}
+
+.tempsV2Quote.green h2,
+.tempsV2Quote.green p {
+  color: #111;
+}
+
+
+/* Countdown en directe */
+.tempsCountdownButton {
+  display: inline-grid;
+  justify-items: center;
+  gap: 8px;
+}
+
+.tempsCountdownButton .countDays {
+  display: block;
+  font-size: clamp(112px, 16vw, 230px);
+  line-height: .78;
+  letter-spacing: -0.105em;
+  font-weight: 950;
+}
+
+.tempsCountdownButton .countUnits {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(255,255,255,.72);
+  border: 1px solid rgba(17,17,17,.10);
+  border-radius: 999px;
+  padding: 9px 15px;
+  box-shadow: 0 8px 24px rgba(17,17,17,.05);
+}
+
+.tempsCountdownButton .countUnits b {
+  font-size: clamp(18px, 2.2vw, 32px);
+  line-height: 1;
+  letter-spacing: -0.06em;
+}
+
+.tempsCountdownButton .countUnits em {
+  font-style: normal;
+  color: #777;
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+  margin-right: 4px;
+}
+
+.tempsCountdownButton:hover .countUnits {
+  border-color: rgba(255,99,146,.28);
+  box-shadow: 0 12px 28px rgba(255,99,146,.14);
+}
+
+
 `;
 
-createRoot(document.getElementById("root")).render(<App />);
+
+createRoot(document.getElementById("root")).render(React.createElement(App));
