@@ -4358,6 +4358,7 @@ function DataScopeControl({ dataScope, setDataScope, rows }) {
 
 
 
+
 function dateDiffDays(start, end) {
   const a = new Date(`${start}T12:00:00`);
   const b = new Date(`${end}T12:00:00`);
@@ -4375,13 +4376,7 @@ function getCountdownParts(targetDate, now = new Date()) {
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
 
-  return {
-    totalSeconds,
-    days,
-    hours,
-    minutes,
-    seconds,
-  };
+  return { totalSeconds, days, hours, minutes, seconds };
 }
 
 function pad2(value) {
@@ -4420,13 +4415,207 @@ function getDistrictImagePath(value) {
   return `/assets/temps-capitalitat/districtes/mapa-${getDistrictSlug(value)}.png`;
 }
 
+function getMonthShortFromKey(monthKey) {
+  if (!monthKey || monthKey === "Sense mes") return "—";
+  const month = Number(monthKey.slice(5, 7));
+  const labels = ["GEN", "FEB", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OCT", "NOV", "DES"];
+  return labels[Math.max(0, Math.min(11, month - 1))] || monthKey;
+}
 
+function getProgramMonthKeys() {
+  return ["2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12"];
+}
 
-function TempsSparkline({ tone = "blue" }) {
+function cumulativeCompletedSeries(rows) {
+  const months = getProgramMonthKeys();
+  let total = 0;
+  return months.map((month) => {
+    total += rows.filter((row) => getMonthKey(row.dataInici) === month).length;
+    return { label: getMonthShortFromKey(month), value: total };
+  });
+}
+
+function pendingSeries(rows) {
+  const months = getProgramMonthKeys();
+  return months.map((month, index) => {
+    const remainingMonths = months.slice(index);
+    const value = rows.filter((row) => remainingMonths.includes(getMonthKey(row.dataInici))).length;
+    return { label: getMonthShortFromKey(month), value };
+  });
+}
+
+function inscriptionsByActivityMonth(inscripcions, rows) {
+  const byIdWeb = {};
+  rows.forEach((row) => {
+    if (row.idWeb && !byIdWeb[row.idWeb]) byIdWeb[row.idWeb] = row;
+  });
+
+  const months = getProgramMonthKeys().map((month) => ({ label: getMonthShortFromKey(month), value: 0, key: month }));
+
+  inscripcions.forEach((inscripcio) => {
+    const activity = byIdWeb[inscripcio.idWeb];
+    const month = getMonthKey(activity?.dataInici);
+    const item = months.find((entry) => entry.key === month);
+    if (item) item.value += inscripcio.entrades || 1;
+  });
+
+  return months;
+}
+
+function todayHourlySeries(rows) {
+  const buckets = [
+    { label: "00h", start: 0, end: 6, value: 0 },
+    { label: "06h", start: 6, end: 10, value: 0 },
+    { label: "10h", start: 10, end: 14, value: 0 },
+    { label: "14h", start: 14, end: 18, value: 0 },
+    { label: "18h", start: 18, end: 22, value: 0 },
+    { label: "24h", start: 22, end: 24, value: 0 },
+  ];
+
+  rows.forEach((row) => {
+    const minutes = parseTimeToMinutes(row.horaInici);
+    if (minutes === null) return;
+    const hour = minutes / 60;
+    const bucket = buckets.find((entry) => hour >= entry.start && hour < entry.end);
+    if (bucket) bucket.value += 1;
+  });
+
+  return buckets;
+}
+
+function topEntries(data, limit = 5) {
+  return Object.entries(data || {})
+    .filter(([label]) => label && label !== "Sense dades")
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([label, value]) => ({ label, value }));
+}
+
+function smoothPath(points) {
+  if (!points.length) return "";
+  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+  return points.reduce((path, point, index) => {
+    if (index === 0) return `M ${point.x} ${point.y}`;
+    const previous = points[index - 1];
+    const cx = (previous.x + point.x) / 2;
+    return `${path} C ${cx} ${previous.y}, ${cx} ${point.y}, ${point.x} ${point.y}`;
+  }, "");
+}
+
+function LineChartMini({ data, tone = "blue", descending = false }) {
+  const width = 260;
+  const height = 110;
+  const padX = 12;
+  const padY = 16;
+  const max = Math.max(1, ...data.map((item) => item.value));
+  const min = Math.min(0, ...data.map((item) => item.value));
+  const range = Math.max(1, max - min);
+  const points = data.map((item, index) => {
+    const x = padX + (index / Math.max(1, data.length - 1)) * (width - padX * 2);
+    const y = height - padY - ((item.value - min) / range) * (height - padY * 2);
+    return { x, y };
+  });
+  const path = smoothPath(points);
+  const areaPath = `${path} L ${width - padX} ${height - padY} L ${padX} ${height - padY} Z`;
+
   return (
-    <svg className={`tempsSparkline ${tone}`} viewBox="0 0 160 54" aria-hidden="true">
-      <path d="M3 45 C18 42, 20 28, 34 30 C48 32, 48 15, 64 19 C82 24, 76 8, 96 12 C116 17, 112 31, 132 23 C146 17, 148 8, 157 6" />
+    <svg className={`realMiniChart line ${tone}`} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
+      <path className="area" d={areaPath} />
+      <path className="linePath" d={path} />
+      {points.map((point, index) => (
+        <circle key={index} cx={point.x} cy={point.y} r={index === points.length - 1 ? 4 : 2.6} />
+      ))}
+      {data.filter((_, index) => index % 2 === 0 || index === data.length - 1).map((item, index) => (
+        <text key={`${item.label}-${index}`} x={padX + ((data.findIndex((d) => d.label === item.label) || 0) / Math.max(1, data.length - 1)) * (width - padX * 2)} y={height - 2}>
+          {item.label}
+        </text>
+      ))}
     </svg>
+  );
+}
+
+function BarChartMini({ data, tone = "pink" }) {
+  const max = Math.max(1, ...data.map((item) => item.value));
+  return (
+    <div className={`realBarChart ${tone}`} aria-hidden="true">
+      {data.slice(1).map((item) => {
+        const height = Math.max(8, Math.round((item.value / max) * 72));
+        return (
+          <span key={item.key || item.label}>
+            <i style={{ height: `${height}px` }} />
+            <b>{item.label}</b>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function HourlyPulseChart({ data }) {
+  const max = Math.max(1, ...data.map((item) => item.value));
+  const width = 260;
+  const height = 110;
+  const points = data.map((item, index) => {
+    const x = 12 + (index / Math.max(1, data.length - 1)) * (width - 24);
+    const y = height - 20 - (item.value / max) * 72;
+    return { x, y };
+  });
+  const path = smoothPath(points);
+  const areaPath = `${path} L ${width - 12} ${height - 20} L 12 ${height - 20} Z`;
+
+  return (
+    <svg className="realMiniChart pulse green" viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
+      <path className="area" d={areaPath} />
+      <path className="linePath" d={path} />
+      {points.map((point, index) => (
+        <circle key={index} cx={point.x} cy={point.y} r={data[index].value ? 5 : 2.5} />
+      ))}
+      {data.map((item, index) => (
+        <text key={item.label} x={points[index].x} y={height - 2}>{item.label}</text>
+      ))}
+    </svg>
+  );
+}
+
+function DonutChart({ data }) {
+  const total = data.reduce((sum, item) => sum + item.value, 0) || 1;
+  const colors = ["#8B5CF6", "#FF6392", "#FFE45E", "#5AA9E6", "#B9FBC0"];
+  let offset = 0;
+
+  return (
+    <div className="donutWrap">
+      <svg className="donutChart" viewBox="0 0 120 120" aria-hidden="true">
+        <circle className="donutBase" cx="60" cy="60" r="42" />
+        {data.map((item, index) => {
+          const length = (item.value / total) * 264;
+          const dash = `${length} ${264 - length}`;
+          const strokeDashoffset = -offset;
+          offset += length;
+          return (
+            <circle
+              key={item.label}
+              className="donutSegment"
+              cx="60"
+              cy="60"
+              r="42"
+              stroke={colors[index % colors.length]}
+              strokeDasharray={dash}
+              strokeDashoffset={strokeDashoffset}
+            />
+          );
+        })}
+        <circle className="donutHole" cx="60" cy="60" r="24" />
+      </svg>
+      <div className="donutLegend">
+        {data.map((item, index) => (
+          <span key={item.label}>
+            <i style={{ background: colors[index % colors.length] }} />
+            <b>{item.label}</b>
+            <em>{Math.round((item.value / total) * 100)}%</em>
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -4449,7 +4638,7 @@ function TempsConfetti({ particles }) {
   );
 }
 
-function TempsCapitalitatView({ rows, inscripcions = [] }) {
+function TempsCapitalitatView({ rows, inscripcions = [], apiSpaces = [] }) {
   const startDate = "2026-02-12";
   const endDate = "2026-12-13";
   const countdownTarget = "2026-12-13T23:59:59";
@@ -4457,24 +4646,19 @@ function TempsCapitalitatView({ rows, inscripcions = [] }) {
   const [particles, setParticles] = useState([]);
   const [funMessage, setFunMessage] = useState({
     title: "La ciutat és l’escenari.",
-    text: "Mou el ratolí pel comptador o clica els números per activar el mode oficina tècnica.",
+    text: "Mou el ratolí pel comptador o clica les targetes per activar el mode oficina tècnica.",
     tone: "blue",
   });
   const [now, setNow] = useState(() => new Date());
 
-  const today = toLocalISODate(now);
-
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      setNow(new Date());
-    }, 1000);
-
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
 
+  const today = toLocalISODate(now);
   const totalDays = Math.max(1, dateDiffDays(startDate, endDate));
   const elapsedDays = Math.max(0, Math.min(totalDays, dateDiffDays(startDate, today)));
-  const remainingDays = Math.max(0, dateDiffDays(today, endDate));
   const countdown = getCountdownParts(countdownTarget, now);
   const progress = Math.max(0, Math.min(100, Math.round((elapsedDays / totalDays) * 100)));
 
@@ -4490,18 +4674,27 @@ function TempsCapitalitatView({ rows, inscripcions = [] }) {
   const [topCategory, topCategoryValue] = getMostActiveEntry(countBy(rows, "categoria"));
 
   const todayRows = rows.filter((row) => row.dataInici === today);
-  const districtSlug = getDistrictSlug(topDistrict);
   const districtImage = getDistrictImagePath(topDistrict);
 
   const topDistrictPercent = rows.length ? Math.round((topDistrictValue / rows.length) * 100) : 0;
   const topCategoryPercent = rows.length ? Math.round((topCategoryValue / rows.length) * 100) : 0;
 
+  const completedChart = cumulativeCompletedSeries(completedRows);
+  const pendingChart = pendingSeries(pendingRows);
+  const inscriptionsChart = inscriptionsByActivityMonth(inscripcions, rows);
+  const todayChart = todayHourlySeries(todayRows);
+  const categoryTop = topEntries(countBy(rows, "categoria"), 5);
+
+  const derivedSpaces = useMemo(() => buildDerivedSpaces(rows, apiSpaces), [rows, apiSpaces]);
+  const topSpaceData = derivedSpaces.find((space) => normalizeSpaceKey(space.title) === normalizeSpaceKey(topSpace)) || findMatchingSpace(topSpace, apiSpaces);
+  const topSpaceImage = normalizeImageUrl(topSpaceData?.imatge || topSpaceData?.imatge_galeria || "");
+
   const colors = ["#5AA9E6", "#7FC8F8", "#FFE45E", "#FF6392", "#B9FBC0", "#CDB4DB"];
 
   function addConfetti(x = 50, y = 40, amount = 14) {
-    const now = Date.now();
+    const nowStamp = Date.now();
     const newParticles = Array.from({ length: amount }, (_, index) => ({
-      id: `${now}-${index}-${Math.random()}`,
+      id: `${nowStamp}-${index}-${Math.random()}`,
       x: Math.max(4, Math.min(96, x + (Math.random() - 0.5) * 16)),
       y: Math.max(4, Math.min(82, y + (Math.random() - 0.5) * 10)),
       r: Math.round(Math.random() * 360),
@@ -4517,11 +4710,8 @@ function TempsCapitalitatView({ rows, inscripcions = [] }) {
 
   function handleHeroMove(event) {
     if (Math.random() > 0.08) return;
-
     const rect = event.currentTarget.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * 100;
-    const y = ((event.clientY - rect.top) / rect.height) * 100;
-    addConfetti(x, y, 2);
+    addConfetti(((event.clientX - rect.left) / rect.width) * 100, ((event.clientY - rect.top) / rect.height) * 100, 2);
   }
 
   function activateMessage(message, x = 50, y = 50) {
@@ -4535,10 +4725,11 @@ function TempsCapitalitatView({ rows, inscripcions = [] }) {
       label: "Activitats finalitzades",
       value: completedRows.length,
       text: `${activeProgramPercent}% del programa ja ha passat.`,
+      chart: <LineChartMini data={completedChart} tone="blue" />,
       tone: "blue",
       message: {
         title: "Tram superat.",
-        text: "Tot això ja forma part de la memòria de la Capitalitat. Seguim construint relat.",
+        text: "La línia mostra l’acumulat real d’activitats finalitzades al llarg del cicle.",
         tone: "blue",
       },
     },
@@ -4546,10 +4737,11 @@ function TempsCapitalitatView({ rows, inscripcions = [] }) {
       label: "Activitats pendents",
       value: pendingRows.length,
       text: "Encara queda Capitalitat per activar.",
+      chart: <LineChartMini data={pendingChart} tone="yellow" descending />,
       tone: "yellow",
       message: {
         title: "Queda Capitalitat.",
-        text: "Respira. Encara hi ha marge, però el calendari ja comença a mirar-nos fixament.",
+        text: "El gràfic baixa mes a mes fins a Santa Llúcia: cada punt és programa pendent.",
         tone: "yellow",
       },
     },
@@ -4557,10 +4749,11 @@ function TempsCapitalitatView({ rows, inscripcions = [] }) {
       label: "Inscripcions totals",
       value: inscriptionsTotal,
       text: `${inscriptionsWithActivity} registres vinculats amb ID WEB.`,
+      chart: <BarChartMini data={inscriptionsChart} tone="pink" />,
       tone: "pink",
       message: {
         title: "La gent està entrant.",
-        text: "Cada inscripció és una petita prova que la ciutat està escoltant.",
+        text: "Les barres agrupen les inscripcions segons el mes de l’activitat vinculada.",
         tone: "pink",
       },
     },
@@ -4568,10 +4761,11 @@ function TempsCapitalitatView({ rows, inscripcions = [] }) {
       label: "Activitat avui",
       value: todayRows.length,
       text: `${uniqueCount(todayRows, "espai")} espais actius avui.`,
+      chart: <HourlyPulseChart data={todayChart} />,
       tone: "green",
       message: {
         title: "La ciutat avui batega.",
-        text: "Avui el programa surt del full i passa a l’espai públic.",
+        text: "La corba mostra les franges horàries amb més activitat durant el dia.",
         tone: "green",
       },
     },
@@ -4585,7 +4779,7 @@ function TempsCapitalitatView({ rows, inscripcions = [] }) {
       />
 
       <section
-        className="tempsV2Hero tempsInteractiveHero"
+        className="tempsV2Hero tempsInteractiveHero tempsPreviewHero"
         onMouseMove={handleHeroMove}
         onClick={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
@@ -4602,11 +4796,7 @@ function TempsCapitalitatView({ rows, inscripcions = [] }) {
       >
         <TempsConfetti particles={particles} />
 
-        <img
-          className="tempsSaintImage left"
-          src="/assets/temps-capitalitat/santa-eulalia.png"
-          alt="Santa Eulàlia"
-        />
+        <img className="tempsSaintImage left" src="/assets/temps-capitalitat/santa-eulalia.png" alt="Santa Eulàlia" />
 
         <div className="tempsV2Center">
           <p className="eyebrow">De Santa Eulàlia a Santa Llúcia</p>
@@ -4624,20 +4814,14 @@ function TempsCapitalitatView({ rows, inscripcions = [] }) {
           >
             <span className="countDays">{countdown.days}</span>
             <span className="countUnits">
-              <b>{pad2(countdown.hours)}</b>
-              <em>h</em>
-              <b>{pad2(countdown.minutes)}</b>
-              <em>min</em>
-              <b>{pad2(countdown.seconds)}</b>
-              <em>s</em>
+              <span><b>{pad2(countdown.hours)}</b><em>hores</em></span>
+              <span><b>{pad2(countdown.minutes)}</b><em>minuts</em></span>
+              <span><b>{pad2(countdown.seconds)}</b><em>segons</em></span>
             </span>
           </button>
           <strong>compte enrere fins al 13 de desembre</strong>
 
-          <div className="tempsV2Progress">
-            <i style={{ width: `${progress}%` }} />
-          </div>
-
+          <div className="tempsV2Progress"><i style={{ width: `${progress}%` }} /></div>
           <div className="tempsV2Dates">
             <span>Santa Eulàlia · febrer</span>
             <b>{progress}% del cicle</b>
@@ -4645,32 +4829,28 @@ function TempsCapitalitatView({ rows, inscripcions = [] }) {
           </div>
         </div>
 
-        <img
-          className="tempsSaintImage right"
-          src="/assets/temps-capitalitat/santa-llucia.png"
-          alt="Santa Llúcia"
-        />
+        <img className="tempsSaintImage right" src="/assets/temps-capitalitat/santa-llucia.png" alt="Santa Llúcia" />
       </section>
 
-      <section className="tempsV2Counters">
+      <section className="tempsV2Counters tempsRealCounters">
         {counters.map((counter, index) => (
           <button
             key={counter.label}
             type="button"
-            className={`tempsV2Counter ${counter.className || ""} interactive ${counter.tone}`}
+            className={`tempsV2Counter ${counter.className || ""} interactive real ${counter.tone}`}
             onClick={() => activateMessage(counter.message, 22 + index * 18, 55)}
           >
             <span>{counter.label}</span>
             <strong>{counter.value}</strong>
             <p>{counter.text}</p>
-            <TempsSparkline tone={counter.tone} />
+            {counter.chart}
           </button>
         ))}
       </section>
 
-      <section className="tempsV2MainGrid">
+      <section className="tempsDashboardGrid">
         <article
-          className="tempsV2MapCard interactiveMap"
+          className="tempsDistrictStory interactive"
           onMouseEnter={() =>
             setFunMessage({
               title: `${formatDistrictName(topDistrict)} lidera el mapa.`,
@@ -4679,13 +4859,13 @@ function TempsCapitalitatView({ rows, inscripcions = [] }) {
             })
           }
         >
-          <div className="tempsV2MapText">
+          <div className="districtHeadline">
             <p className="eyebrow">Districte més actiu</p>
             <h2>{formatDistrictName(topDistrict)}</h2>
             <p>{topDistrictValue} passis · {topDistrictPercent}% del programa publicat.</p>
           </div>
 
-          <div className="tempsV2MapImageWrap">
+          <div className="districtMapFrame">
             <img
               src={districtImage}
               alt={`Mapa del districte més actiu: ${topDistrict}`}
@@ -4695,14 +4875,18 @@ function TempsCapitalitatView({ rows, inscripcions = [] }) {
                 event.currentTarget.src = fallback;
               }}
             />
-            <small className="tempsMapDebug">{districtImage}</small>
+            <div className="mapTooltip">
+              <b>{formatDistrictName(topDistrict)}</b>
+              <span>{topDistrictValue} passis</span>
+              <small>{topDistrictPercent}% del programa</small>
+            </div>
           </div>
         </article>
 
-        <div className="tempsV2SideCards">
+        <aside className="tempsSidePanel">
           <button
             type="button"
-            className="tempsV2InsightCard interactive"
+            className={`spaceHeroCard ${topSpaceImage ? "hasImage" : ""}`}
             onClick={() =>
               activateMessage({
                 title: `${topSpace} és el motor.`,
@@ -4711,27 +4895,33 @@ function TempsCapitalitatView({ rows, inscripcions = [] }) {
               }, 76, 62)
             }
           >
-            <p className="eyebrow">Espai més actiu</p>
-            <h2>{topSpace}</h2>
-            <p>{topSpaceValue} passis vinculats.</p>
+            {topSpaceImage && <img src={topSpaceImage} alt={topSpace} referrerPolicy="no-referrer" />}
+            <div>
+              <p className="eyebrow">Espai més actiu</p>
+              <h2>{topSpace}</h2>
+              <span>{topSpaceValue} passis vinculats.</span>
+            </div>
           </button>
 
           <button
             type="button"
-            className="tempsV2InsightCard interactive"
+            className="categoryDonutCard"
             onClick={() =>
               activateMessage({
-                title: `${topCategory} domina la setmana.`,
+                title: `${topCategory} domina el programa.`,
                 text: `${topCategoryValue} passis i ${topCategoryPercent}% del programa. Una pista clara del pols cultural.`,
                 tone: "yellow",
               }, 78, 74)
             }
           >
-            <p className="eyebrow">Categoria dominant</p>
-            <h2>{topCategory}</h2>
-            <p>{topCategoryValue} passis · {topCategoryPercent}% del programa.</p>
+            <div>
+              <p className="eyebrow">Categoria dominant</p>
+              <h2>{topCategory}</h2>
+              <p>{topCategoryValue} passis · {topCategoryPercent}% del programa.</p>
+            </div>
+            <DonutChart data={categoryTop} />
           </button>
-        </div>
+        </aside>
       </section>
 
       <section className={`tempsV2Quote ${funMessage.tone}`}>
@@ -4890,7 +5080,7 @@ function App() {
           <DataScopeControl dataScope={dataScope} setDataScope={setDataScope} rows={rows} />
         )}
         {view === "dashboard" && <DashboardView rows={scopedRows} inscripcions={inscripcions} />}
-        {view === "temps" && <TempsCapitalitatView rows={scopedRows} inscripcions={inscripcions} />}
+        {view === "temps" && <TempsCapitalitatView rows={scopedRows} inscripcions={inscripcions} apiSpaces={apiSpaces} />}
         {view === "direccio" && canSeeView(role, "direccio") && (
           <DireccioView
             rows={scopedRows}
@@ -7878,6 +8068,449 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
   box-shadow: 0 12px 28px rgba(255,99,146,.14);
 }
 
+
+
+/* Temps de Capitalitat V4 · gràfics reals i preview */
+.tempsHero,
+.tempsBigCounters,
+.tempsInsightGrid,
+.tempsMessage,
+.tempsV2MainGrid {
+  display: none !important;
+}
+
+.tempsPreviewHero {
+  min-height: 520px;
+  box-shadow: none;
+  border-color: rgba(17,17,17,.08);
+}
+
+.tempsCountdownButton {
+  display: inline-grid;
+  justify-items: center;
+  gap: 10px;
+}
+
+.tempsCountdownButton .countDays {
+  display: block;
+  font-size: clamp(116px, 16vw, 230px);
+  line-height: .78;
+  letter-spacing: -0.105em;
+  font-weight: 950;
+}
+
+.tempsCountdownButton .countUnits {
+  display: inline-flex !important;
+  align-items: stretch;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(255,255,255,.82);
+  border: 1px solid rgba(17,17,17,.10);
+  border-radius: 18px;
+  padding: 8px 10px !important;
+  box-shadow: 0 10px 28px rgba(17,17,17,.06);
+}
+
+.tempsCountdownButton .countUnits > span {
+  display: grid;
+  min-width: 68px;
+  text-align: center;
+  padding: 4px 10px;
+  border-right: 1px dashed rgba(255,99,146,.35);
+}
+
+.tempsCountdownButton .countUnits > span:last-child {
+  border-right: 0;
+}
+
+.tempsCountdownButton .countUnits b {
+  display: block !important;
+  position: static !important;
+  transform: none !important;
+  font-size: 28px !important;
+  line-height: 1 !important;
+  letter-spacing: -0.055em !important;
+}
+
+.tempsCountdownButton .countUnits em {
+  display: block !important;
+  position: static !important;
+  transform: none !important;
+  margin: 4px 0 0 !important;
+  color: #666 !important;
+  font-size: 9px !important;
+  font-weight: 950 !important;
+  line-height: 1 !important;
+  text-transform: uppercase;
+  font-style: normal;
+}
+
+.tempsRealCounters {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.tempsV2Counter.real {
+  min-height: 230px;
+  padding: 22px;
+}
+
+.tempsV2Counter.real strong {
+  font-size: clamp(52px, 6vw, 88px);
+  margin: 4px 0;
+}
+
+.tempsV2Counter.real p {
+  max-width: 70%;
+  position: relative;
+  z-index: 2;
+}
+
+.realMiniChart {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 14px;
+  width: calc(100% - 36px);
+  height: 104px;
+  overflow: visible;
+}
+
+.realMiniChart .area {
+  opacity: .18;
+}
+
+.realMiniChart .linePath {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 4.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 8px 14px rgba(0,0,0,.08));
+}
+
+.realMiniChart circle {
+  fill: #fff;
+  stroke: currentColor;
+  stroke-width: 2.5;
+}
+
+.realMiniChart text {
+  fill: #777;
+  font-size: 9px;
+  font-weight: 950;
+  text-anchor: middle;
+}
+
+.realMiniChart.blue { color: #5AA9E6; }
+.realMiniChart.yellow { color: #EAB308; }
+.realMiniChart.green { color: #4CAF69; }
+
+.realMiniChart.blue .area { fill: #5AA9E6; }
+.realMiniChart.yellow .area { fill: #FFE45E; }
+.realMiniChart.green .area { fill: #B9FBC0; }
+
+.realBarChart {
+  position: absolute;
+  left: 22px;
+  right: 22px;
+  bottom: 18px;
+  height: 100px;
+  display: flex;
+  align-items: end;
+  gap: 11px;
+}
+
+.realBarChart span {
+  flex: 1;
+  display: grid;
+  align-items: end;
+  gap: 6px;
+}
+
+.realBarChart i {
+  display: block;
+  border-radius: 10px 10px 2px 2px;
+  background: linear-gradient(180deg, #FF6392, rgba(255,99,146,.18));
+  box-shadow: 0 10px 20px rgba(255,99,146,.18);
+}
+
+.realBarChart b {
+  color: #777;
+  font-size: 8px;
+  font-weight: 950;
+  text-align: center;
+}
+
+.tempsDashboardGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.9fr) minmax(360px, .8fr);
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.tempsDistrictStory {
+  background: #fff;
+  border: 1px solid rgba(17,17,17,.10);
+  border-radius: 30px;
+  padding: 24px;
+  display: grid;
+  grid-template-columns: .42fr .58fr;
+  gap: 22px;
+  align-items: center;
+  min-height: 430px;
+  box-shadow: 0 12px 30px rgba(17,17,17,.035);
+}
+
+.districtHeadline h2 {
+  margin: 0 0 12px;
+  font-size: clamp(44px, 6vw, 78px);
+  line-height: .85;
+  letter-spacing: -0.085em;
+}
+
+.districtHeadline p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.districtMapFrame {
+  position: relative;
+  aspect-ratio: 1.35 / 1;
+  border-radius: 26px;
+  overflow: hidden;
+  background: #f4f4f0;
+  box-shadow: inset 0 0 0 1px rgba(17,17,17,.06);
+}
+
+.districtMapFrame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transform: scale(1.02);
+  transition: transform .45s ease;
+}
+
+.tempsDistrictStory:hover .districtMapFrame img {
+  transform: scale(1.065);
+}
+
+.mapTooltip {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  background: rgba(255,255,255,.92);
+  border: 1px solid rgba(255,99,146,.20);
+  border-radius: 16px;
+  padding: 11px 13px;
+  min-width: 150px;
+  box-shadow: 0 12px 28px rgba(17,17,17,.10);
+}
+
+.mapTooltip b,
+.mapTooltip span,
+.mapTooltip small {
+  display: block;
+}
+
+.mapTooltip b {
+  font-size: 14px;
+  letter-spacing: -0.03em;
+}
+
+.mapTooltip span {
+  color: #555;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.mapTooltip small {
+  color: #777;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.tempsSidePanel {
+  display: grid;
+  gap: 16px;
+}
+
+.spaceHeroCard,
+.categoryDonutCard {
+  position: relative;
+  overflow: hidden;
+  min-height: 207px;
+  border: 1px solid rgba(17,17,17,.10);
+  border-radius: 30px;
+  background: #fff;
+  padding: 22px;
+  text-align: left;
+  box-shadow: 0 12px 30px rgba(17,17,17,.035);
+  cursor: pointer;
+}
+
+.spaceHeroCard img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: .48;
+  filter: saturate(.8) contrast(.95);
+}
+
+.spaceHeroCard.hasImage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(255,255,255,.96) 0%, rgba(255,255,255,.78) 52%, rgba(255,255,255,.12) 100%);
+}
+
+.spaceHeroCard div {
+  position: relative;
+  z-index: 2;
+  max-width: 70%;
+}
+
+.spaceHeroCard h2,
+.categoryDonutCard h2 {
+  margin: 0 0 10px;
+  font-size: clamp(28px, 3.4vw, 46px);
+  line-height: .92;
+  letter-spacing: -0.07em;
+}
+
+.spaceHeroCard span,
+.categoryDonutCard p {
+  color: #555;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.categoryDonutCard {
+  display: grid;
+  grid-template-columns: .65fr .85fr;
+  gap: 14px;
+  align-items: center;
+}
+
+.donutWrap {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.donutChart {
+  width: 120px;
+  height: 120px;
+  transform: rotate(-90deg);
+}
+
+.donutBase {
+  fill: none;
+  stroke: #eee;
+  stroke-width: 18;
+}
+
+.donutSegment {
+  fill: none;
+  stroke-width: 18;
+  stroke-linecap: butt;
+  transition: stroke-width .18s ease;
+}
+
+.donutHole {
+  fill: #fff;
+}
+
+.donutLegend {
+  display: grid;
+  gap: 7px;
+}
+
+.donutLegend span {
+  display: grid;
+  grid-template-columns: 10px minmax(0,1fr) auto;
+  gap: 7px;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.donutLegend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+}
+
+.donutLegend b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.donutLegend em {
+  color: #555;
+  font-style: normal;
+}
+
+.tempsConfettiLayer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+  overflow: hidden;
+}
+
+.tempsConfettiLayer i {
+  position: absolute;
+  width: 9px;
+  height: 14px;
+  border-radius: 3px;
+  opacity: .95;
+  animation-name: tempsConfettiFall;
+  animation-timing-function: cubic-bezier(.22,.8,.28,1);
+  animation-fill-mode: forwards;
+}
+
+@keyframes tempsConfettiFall {
+  0% { opacity: 1; translate: 0 0; scale: 1; }
+  100% { opacity: 0; translate: 0 130px; scale: .4; }
+}
+
+.tempsV2Quote {
+  min-height: 92px;
+}
+
+@media (max-width: 1200px) {
+  .tempsRealCounters,
+  .tempsDashboardGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .tempsDistrictStory {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 800px) {
+  .tempsRealCounters,
+  .tempsDashboardGrid,
+  .tempsDistrictStory,
+  .categoryDonutCard {
+    grid-template-columns: 1fr;
+  }
+
+  .spaceHeroCard div {
+    max-width: 100%;
+  }
+
+  .tempsCountdownButton .countUnits {
+    flex-wrap: wrap;
+  }
+}
 
 `;
 
