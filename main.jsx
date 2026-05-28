@@ -3770,7 +3770,7 @@ function TypeDonut({ title, data }) {
   return (
     <ChartCard title={title} icon="◔" totalLabel={`Total: ${total} activitats`}>
       <div className="donutCardBody">
-        <div className="tempsDonutWrap">
+        <div className="inscriptionsDonutWrap">
           <ResponsiveContainer width="100%" height={230}>
             <PieChart>
               <Pie
@@ -3780,6 +3780,8 @@ function TypeDonut({ title, data }) {
                 innerRadius={56}
                 outerRadius={92}
                 paddingAngle={1}
+                cx="50%"
+                cy="50%"
                 label={({ percent }) => `${percent}%`}
               >
                 {chartData.map((entry) => (
@@ -3795,7 +3797,7 @@ function TypeDonut({ title, data }) {
           </div>
         </div>
 
-        <div className="tempsDonutLegend">
+        <div className="inscriptionsDonutLegend">
           {chartData.map((item) => (
             <div className="donutLegendRow" key={item.name}>
               <i style={{ background: item.color }} />
@@ -8838,6 +8840,105 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
 .categoryDonutCard .tempsDonutLegend em {
   color: #555;
   font-style: normal;
+}
+
+
+/* FIX definitiu: donuts de Dades Inscripcions centrats i separats de Temps */
+.donutCardBody {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.95fr) minmax(220px, 1.05fr);
+  gap: 26px;
+  align-items: center;
+  min-height: 270px;
+}
+
+.inscriptionsDonutWrap {
+  position: relative;
+  width: 100%;
+  height: 250px;
+  display: grid;
+  place-items: center;
+  overflow: visible;
+}
+
+.inscriptionsDonutWrap .recharts-responsive-container,
+.inscriptionsDonutWrap .recharts-wrapper,
+.inscriptionsDonutWrap .recharts-surface {
+  width: 100% !important;
+  height: 250px !important;
+  overflow: visible !important;
+}
+
+.inscriptionsDonutWrap .recharts-pie-sector {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.inscriptionsDonutWrap .donutCenter {
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  text-align: center;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.inscriptionsDonutWrap .donutCenter strong {
+  display: block;
+  font-size: 28px;
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.inscriptionsDonutWrap .donutCenter span {
+  display: block;
+  margin-top: 4px;
+  color: #666;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.inscriptionsDonutLegend {
+  display: grid;
+  gap: 9px;
+  align-content: center;
+  min-width: 0;
+}
+
+.inscriptionsDonutLegend .donutLegendRow {
+  display: grid;
+  grid-template-columns: 10px minmax(120px, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  line-height: 1.05;
+}
+
+.inscriptionsDonutLegend .donutLegendRow i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.inscriptionsDonutLegend .donutLegendRow span {
+  min-width: 0;
+  font-weight: 850;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inscriptionsDonutLegend .donutLegendRow b,
+.inscriptionsDonutLegend .donutLegendRow em {
+  font-weight: 900;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .donutCardBody {
+    grid-template-columns: 1fr;
+  }
 }
 
 `;
