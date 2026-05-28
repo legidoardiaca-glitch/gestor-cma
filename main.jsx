@@ -53,6 +53,30 @@ function normalizeLooseText(value) {
     .trim();
 }
 
+
+function getManagerKey(value) {
+  return normalizeLooseText(value)
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
+function getManagerLabel(value) {
+  const key = getManagerKey(value);
+  if (!key) return "Sense encarregada";
+
+  const known = {
+    LAIDA: "LAIDA",
+    MARC: "MARC",
+    ROGER: "ROGER",
+    HOTARU: "HOTARU",
+    CRISTIAN: "CRISTIAN",
+    NEDA: "NEDA",
+  };
+
+  return known[key] || key;
+}
+
 function getModalitatKey(value) {
   const text = normalizeLooseText(value).toUpperCase();
   if (!text) return "";
@@ -3349,7 +3373,15 @@ function DashboardView({ rows, inscripcions = [] }) {
       months,
       categories: Array.from(new Set(rows.map((row) => row.categoria).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ca")),
       districts: Array.from(new Set(rows.map((row) => row.districte).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ca")),
-      managers: Array.from(new Set(rows.map((row) => row.encarregada).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ca")),
+      managers: Array.from(
+        new Map(
+          rows
+            .map((row) => [getManagerKey(row.encarregada), getManagerLabel(row.encarregada)])
+            .filter(([key]) => Boolean(key))
+        ).entries()
+      )
+        .map(([key, label]) => ({ key, label }))
+        .sort((a, b) => a.label.localeCompare(b.label, "ca")),
       modalitats: Array.from(new Set(rows.map((row) => getModalitatKey(row.modalitat)).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ca")),
     };
   }, [rows]);
@@ -3364,7 +3396,7 @@ function DashboardView({ rows, inscripcions = [] }) {
       const matchesMonth = monthFilter === "all" || getMonthKey(row.dataInici) === monthFilter;
       const matchesCategory = categoryFilter === "all" || row.categoria === categoryFilter;
       const matchesDistrict = districtFilter === "all" || row.districte === districtFilter;
-      const matchesManager = managerFilter === "all" || row.encarregada === managerFilter;
+      const matchesManager = managerFilter === "all" || getManagerKey(row.encarregada) === managerFilter;
       const matchesModalitat = modalitatFilter === "all" || getModalitatKey(row.modalitat) === modalitatFilter;
 
       return inDateRange && matchesMonth && matchesCategory && matchesDistrict && matchesManager && matchesModalitat;
@@ -3392,7 +3424,7 @@ function DashboardView({ rows, inscripcions = [] }) {
 
       const matchesCategory = categoryFilter === "all" || activity.categoria === categoryFilter;
       const matchesDistrict = districtFilter === "all" || activity.districte === districtFilter;
-      const matchesManager = managerFilter === "all" || activity.encarregada === managerFilter;
+      const matchesManager = managerFilter === "all" || getManagerKey(activity.encarregada) === managerFilter;
       const matchesModalitat = modalitatFilter === "all" || getModalitatKey(activity.modalitat) === modalitatFilter;
 
       return matchesCategory && matchesDistrict && matchesManager && matchesModalitat;
@@ -3553,7 +3585,7 @@ function DashboardView({ rows, inscripcions = [] }) {
             <select value={managerFilter} onChange={(e) => setManagerFilter(e.target.value)}>
               <option value="all">Totes</option>
               {filterOptions.managers.map((manager) => (
-                <option key={manager} value={manager}>{manager}</option>
+                <option key={manager.key} value={manager.key}>{manager.label}</option>
               ))}
             </select>
           </label>
