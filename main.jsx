@@ -4815,8 +4815,8 @@ function TempsCapitalitatView({ rows, inscripcions = [], apiSpaces = [] }) {
             <span className="countDays">{countdown.days}</span>
             <span className="countUnits">
               <span><b>{pad2(countdown.hours)}</b><em>hores</em></span>
-              <span><b>{pad2(countdown.minutes)}</b><em>minuts</em></span>
-              <span><b>{pad2(countdown.seconds)}</b><em>segons</em></span>
+              <span><b>{pad2(countdown.minutes)}</b><em>min</em></span>
+              <span><b>{pad2(countdown.seconds)}</b><em>seg</em></span>
             </span>
           </button>
           <strong>compte enrere fins al 13 de desembre</strong>
@@ -4840,10 +4840,14 @@ function TempsCapitalitatView({ rows, inscripcions = [], apiSpaces = [] }) {
             className={`tempsV2Counter ${counter.className || ""} interactive real ${counter.tone}`}
             onClick={() => activateMessage(counter.message, 22 + index * 18, 55)}
           >
-            <span>{counter.label}</span>
-            <strong>{counter.value}</strong>
-            <p>{counter.text}</p>
-            {counter.chart}
+            <div className="kpiTextZone">
+              <span>{counter.label}</span>
+              <strong>{counter.value}</strong>
+              <p>{counter.text}</p>
+            </div>
+            <div className="kpiChartZone">
+              {counter.chart}
+            </div>
           </button>
         ))}
       </section>
@@ -8509,6 +8513,202 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
 
   .tempsCountdownButton .countUnits {
     flex-wrap: wrap;
+  }
+}
+
+
+/* Temps de Capitalitat V5 · maquetació fina de comptador i KPIs */
+.tempsCountdownButton .countUnits {
+  display: inline-flex !important;
+  align-items: stretch !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  background: rgba(255,255,255,.88) !important;
+  border: 1px solid rgba(17,17,17,.10) !important;
+  border-radius: 22px !important;
+  padding: 8px !important;
+  box-shadow: 0 12px 30px rgba(17,17,17,.065) !important;
+  min-width: 260px;
+}
+
+.tempsCountdownButton .countUnits > span {
+  display: grid !important;
+  grid-template-rows: auto auto;
+  place-items: center;
+  min-width: 72px;
+  padding: 7px 10px 6px !important;
+  border-right: 1px dashed rgba(255,99,146,.28) !important;
+  line-height: 1 !important;
+}
+
+.tempsCountdownButton .countUnits > span:last-child {
+  border-right: 0 !important;
+}
+
+.tempsCountdownButton .countUnits b {
+  display: block !important;
+  position: static !important;
+  transform: none !important;
+  font-size: 31px !important;
+  line-height: .86 !important;
+  letter-spacing: -0.06em !important;
+  font-weight: 950 !important;
+  margin: 0 !important;
+  color: #111 !important;
+}
+
+.tempsCountdownButton .countUnits em {
+  display: block !important;
+  position: static !important;
+  transform: none !important;
+  font-style: normal !important;
+  color: #666 !important;
+  font-size: 9px !important;
+  font-weight: 950 !important;
+  line-height: 1 !important;
+  text-transform: uppercase !important;
+  letter-spacing: .06em !important;
+  margin: 7px 0 0 !important;
+  white-space: nowrap !important;
+}
+
+/* KPI cards: separar número/text i gràfic */
+.tempsV2Counters.tempsRealCounters {
+  align-items: stretch;
+}
+
+.tempsV2Counter.real {
+  min-height: 270px !important;
+  padding: 22px !important;
+  display: grid !important;
+  grid-template-rows: auto minmax(92px, 1fr) !important;
+  gap: 14px !important;
+  overflow: hidden !important;
+}
+
+.tempsV2Counter.real .kpiTextZone {
+  position: relative;
+  z-index: 3;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+
+.tempsV2Counter.real .kpiTextZone span {
+  display: block;
+  color: inherit;
+  opacity: .72;
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: .045em;
+  text-transform: uppercase;
+}
+
+.tempsV2Counter.real .kpiTextZone strong {
+  display: block;
+  font-size: clamp(54px, 6vw, 88px) !important;
+  line-height: .82 !important;
+  letter-spacing: -0.09em !important;
+  margin: 2px 0 0 !important;
+}
+
+.tempsV2Counter.real .kpiTextZone p {
+  max-width: 100% !important;
+  margin: 0 !important;
+  font-size: 12.5px !important;
+  line-height: 1.2 !important;
+  position: static !important;
+  z-index: auto !important;
+}
+
+.tempsV2Counter.dark.real .kpiTextZone span,
+.tempsV2Counter.dark.real .kpiTextZone p {
+  color: rgba(255,255,255,.76) !important;
+}
+
+.kpiChartZone {
+  position: relative;
+  z-index: 1;
+  min-height: 96px;
+  align-self: end;
+  margin-top: 2px;
+}
+
+.kpiChartZone .realMiniChart {
+  position: relative !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  width: 100% !important;
+  height: 98px !important;
+  display: block;
+}
+
+.kpiChartZone .realBarChart {
+  position: relative !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  width: 100% !important;
+  height: 96px !important;
+  display: flex !important;
+  align-items: end !important;
+  margin-top: 0 !important;
+}
+
+.kpiChartZone .realBarChart i {
+  max-height: 78px;
+}
+
+.kpiChartZone .realMiniChart text {
+  font-size: 8.5px !important;
+  opacity: .82;
+}
+
+.tempsV2Counter.real::after,
+.tempsV2InsightCard.interactive::after {
+  z-index: 5;
+}
+
+/* Ajustos específics per evitar trepitjaments */
+.tempsV2Counter.real.pink .kpiChartZone {
+  min-height: 104px;
+}
+
+.tempsV2Counter.real.green .kpiChartZone .realMiniChart {
+  height: 100px !important;
+}
+
+.tempsV2Counter.dark.real {
+  background:
+    radial-gradient(circle at 88% 42%, rgba(90,169,230,.24), transparent 34%),
+    linear-gradient(135deg, #111, #101214) !important;
+}
+
+.tempsV2Counter.dark.real .realMiniChart {
+  opacity: .95;
+}
+
+@media (max-width: 800px) {
+  .tempsCountdownButton .countUnits {
+    min-width: 0;
+    width: min(330px, 92vw);
+    gap: 5px !important;
+    padding: 7px !important;
+  }
+
+  .tempsCountdownButton .countUnits > span {
+    min-width: 0;
+    flex: 1;
+    padding: 7px 6px 6px !important;
+  }
+
+  .tempsCountdownButton .countUnits b {
+    font-size: 24px !important;
+  }
+
+  .tempsV2Counter.real {
+    min-height: 245px !important;
   }
 }
 
