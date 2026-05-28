@@ -3767,31 +3767,43 @@ function TypeDonut({ title, data }) {
     percent: Math.round((item.value / total) * 100),
   }));
 
+  const radius = 72;
+  const circumference = 2 * Math.PI * radius;
+  let offset = 0;
+
   return (
     <ChartCard title={title} icon="◔" totalLabel={`Total: ${total} activitats`}>
-      <div className="donutCardBody">
-        <div className="inscriptionsDonutWrap">
-          <ResponsiveContainer width="100%" height={230}>
-            <PieChart>
-              <Pie
-                data={chartData}
-                dataKey="value"
-                nameKey="name"
-                innerRadius={56}
-                outerRadius={92}
-                paddingAngle={1}
-                cx="50%"
-                cy="50%"
-                label={({ percent }) => `${percent}%`}
-              >
-                {chartData.map((entry) => (
-                  <Cell key={entry.name} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(value, name) => [value, name]} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="donutCenter">
+      <div className="donutCardBody inscriptionsDonutBody">
+        <div className="inscriptionsSvgDonutWrap">
+          <svg className="inscriptionsSvgDonut" viewBox="0 0 220 220" aria-hidden="true">
+            <circle
+              className="inscriptionsSvgDonutBase"
+              cx="110"
+              cy="110"
+              r={radius}
+            />
+            {chartData.map((item) => {
+              const length = (item.value / total) * circumference;
+              const dash = `${length} ${circumference - length}`;
+              const strokeDashoffset = -offset;
+              offset += length;
+
+              return (
+                <circle
+                  key={item.name}
+                  className="inscriptionsSvgDonutSegment"
+                  cx="110"
+                  cy="110"
+                  r={radius}
+                  stroke={item.color}
+                  strokeDasharray={dash}
+                  strokeDashoffset={strokeDashoffset}
+                />
+              );
+            })}
+          </svg>
+
+          <div className="donutCenter inscriptionsSvgDonutCenter">
             <strong>{total}</strong>
             <span>activitats</span>
           </div>
@@ -8938,6 +8950,126 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
 @media (max-width: 900px) {
   .donutCardBody {
     grid-template-columns: 1fr;
+  }
+}
+
+
+/* FIX REAL: donuts de Dades Inscripcions amb SVG propi, sense Recharts */
+.inscriptionsDonutBody {
+  display: grid !important;
+  grid-template-columns: minmax(250px, 0.95fr) minmax(220px, 1.05fr) !important;
+  gap: 28px !important;
+  align-items: center !important;
+  min-height: 270px !important;
+}
+
+.inscriptionsSvgDonutWrap {
+  position: relative;
+  width: 260px;
+  height: 260px;
+  display: grid;
+  place-items: center;
+  justify-self: center;
+}
+
+.inscriptionsSvgDonut {
+  width: 230px;
+  height: 230px;
+  display: block;
+  overflow: visible;
+  transform: rotate(-90deg);
+}
+
+.inscriptionsSvgDonutBase {
+  fill: none;
+  stroke: #edf0f3;
+  stroke-width: 34;
+}
+
+.inscriptionsSvgDonutSegment {
+  fill: none;
+  stroke-width: 34;
+  stroke-linecap: butt;
+  transition: stroke-width .18s ease, filter .18s ease;
+}
+
+.inscriptionsSvgDonutWrap:hover .inscriptionsSvgDonutSegment {
+  filter: drop-shadow(0 7px 10px rgba(90,169,230,.12));
+}
+
+.inscriptionsSvgDonutCenter {
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  text-align: center !important;
+  pointer-events: none;
+}
+
+.inscriptionsSvgDonutCenter strong {
+  display: block;
+  font-size: 29px;
+  line-height: .95;
+  letter-spacing: -0.055em;
+}
+
+.inscriptionsSvgDonutCenter span {
+  display: block;
+  margin-top: 5px;
+  color: #666;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.inscriptionsDonutLegend {
+  display: grid !important;
+  gap: 10px !important;
+  align-content: center !important;
+  min-width: 0 !important;
+}
+
+.inscriptionsDonutLegend .donutLegendRow {
+  display: grid !important;
+  grid-template-columns: 10px minmax(130px, 1fr) auto auto !important;
+  gap: 8px !important;
+  align-items: center !important;
+  font-size: 12px !important;
+  line-height: 1.05 !important;
+}
+
+.inscriptionsDonutLegend .donutLegendRow i {
+  width: 9px !important;
+  height: 9px !important;
+  border-radius: 999px !important;
+}
+
+.inscriptionsDonutLegend .donutLegendRow span {
+  min-width: 0;
+  font-weight: 850;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inscriptionsDonutLegend .donutLegendRow b,
+.inscriptionsDonutLegend .donutLegendRow em {
+  font-weight: 900;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .inscriptionsDonutBody {
+    grid-template-columns: 1fr !important;
+  }
+
+  .inscriptionsSvgDonutWrap {
+    width: 230px;
+    height: 230px;
+  }
+
+  .inscriptionsSvgDonut {
+    width: 210px;
+    height: 210px;
   }
 }
 
