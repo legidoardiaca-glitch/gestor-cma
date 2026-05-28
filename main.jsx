@@ -8714,11 +8714,6 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
 
 
 /* FIX: els donuts generals del Dashboard no han de ser afectats pels estils de Temps */
-.donutChart:not(.tempsDonutChart),
-.donutChart:not(.tempsDonutChart) svg {
-  transform-origin: center center;
-}
-
 .tempsDonutWrap {
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr);
@@ -8777,6 +8772,70 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
 }
 
 .tempsDonutLegend em {
+  color: #555;
+  font-style: normal;
+}
+
+
+/* Temps-only donut scoped styles. No toca cap donut global del dashboard. */
+.categoryDonutCard .tempsDonutWrap {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.categoryDonutCard .tempsDonutChart {
+  width: 120px;
+  height: 120px;
+  transform: rotate(-90deg);
+  overflow: visible;
+  flex: 0 0 auto;
+}
+
+.categoryDonutCard .tempsDonutBase {
+  fill: none;
+  stroke: #eee;
+  stroke-width: 18;
+}
+
+.categoryDonutCard .tempsDonutSegment {
+  fill: none;
+  stroke-width: 18;
+  stroke-linecap: butt;
+}
+
+.categoryDonutCard .tempsDonutHole {
+  fill: #fff;
+}
+
+.categoryDonutCard .tempsDonutLegend {
+  display: grid;
+  gap: 7px;
+}
+
+.categoryDonutCard .tempsDonutLegend span {
+  display: grid;
+  grid-template-columns: 10px minmax(0,1fr) auto;
+  gap: 7px;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.categoryDonutCard .tempsDonutLegend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+}
+
+.categoryDonutCard .tempsDonutLegend b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.categoryDonutCard .tempsDonutLegend em {
   color: #555;
   font-style: normal;
 }
