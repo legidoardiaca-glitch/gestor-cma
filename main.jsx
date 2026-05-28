@@ -3770,7 +3770,7 @@ function TypeDonut({ title, data }) {
   return (
     <ChartCard title={title} icon="◔" totalLabel={`Total: ${total} activitats`}>
       <div className="donutCardBody">
-        <div className="donutWrap">
+        <div className="tempsDonutWrap">
           <ResponsiveContainer width="100%" height={230}>
             <PieChart>
               <Pie
@@ -3795,7 +3795,7 @@ function TypeDonut({ title, data }) {
           </div>
         </div>
 
-        <div className="donutLegend">
+        <div className="tempsDonutLegend">
           {chartData.map((item) => (
             <div className="donutLegendRow" key={item.name}>
               <i style={{ background: item.color }} />
@@ -4583,9 +4583,9 @@ function DonutChart({ data }) {
   let offset = 0;
 
   return (
-    <div className="donutWrap">
-      <svg className="donutChart" viewBox="0 0 120 120" aria-hidden="true">
-        <circle className="donutBase" cx="60" cy="60" r="42" />
+    <div className="tempsDonutWrap">
+      <svg className="tempsDonutChart" viewBox="0 0 120 120" aria-hidden="true">
+        <circle className="tempsDonutBase" cx="60" cy="60" r="42" />
         {data.map((item, index) => {
           const length = (item.value / total) * 264;
           const dash = `${length} ${264 - length}`;
@@ -4594,7 +4594,7 @@ function DonutChart({ data }) {
           return (
             <circle
               key={item.label}
-              className="donutSegment"
+              className="tempsDonutSegment"
               cx="60"
               cy="60"
               r="42"
@@ -4604,9 +4604,9 @@ function DonutChart({ data }) {
             />
           );
         })}
-        <circle className="donutHole" cx="60" cy="60" r="24" />
+        <circle className="tempsDonutHole" cx="60" cy="60" r="24" />
       </svg>
-      <div className="donutLegend">
+      <div className="tempsDonutLegend">
         {data.map((item, index) => (
           <span key={item.label}>
             <i style={{ background: colors[index % colors.length] }} />
@@ -5276,8 +5276,8 @@ p { color: #666; }
 .originDistrictCell.od8 { grid-column: 4; grid-row: 1; }
 .originDistrictCell.od9 { grid-column: 4; grid-row: 2; }
 .originDistrictCell.od10 { grid-column: 4 / span 2; grid-row: 3; }
-.donutWrap .recharts-wrapper { overflow: visible; }
-.donutWrap svg { overflow: visible; }
+.tempsDonutWrap .recharts-wrapper { overflow: visible; }
+.tempsDonutWrap svg { overflow: visible; }
 
 
 .sameDistrictSummary { display: grid; grid-template-columns: 150px 1fr; gap: 18px; align-items: center; margin-bottom: 10px; }
@@ -5986,7 +5986,7 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
 .chartTotal { background: #f3f3f1; border: 1px solid #eee; border-radius: 999px; padding: 7px 11px; font-size: 12px; color: #555; white-space: nowrap; }
 .chartBody { height: 300px; }
 .donutCardBody { display: grid; grid-template-columns: 300px 1fr; gap: 24px; align-items: center; min-height: 290px; }
-.donutWrap { position: relative; height: 260px; }
+.tempsDonutWrap { position: relative; height: 260px; }
 .donutCenter {
   position: absolute;
   top: 50%;
@@ -5996,15 +5996,15 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
 }
 .donutCenter strong { display: block; font-size: 28px; line-height: 1; }
 .donutCenter span { display: block; margin-top: 5px; color: #555; font-size: 13px; }
-.donutLegend { display: grid; gap: 10px; }
-.donutLegendRow { display: grid; grid-template-columns: 12px minmax(120px, 1fr) 42px 42px; gap: 9px; align-items: center; font-size: 13px; }
-.donutLegendRow i { width: 10px; height: 10px; border-radius: 50%; }
-.donutLegendRow b, .donutLegendRow em { text-align: right; font-style: normal; font-weight: 800; }
-.donutLegendRow em { color: #555; }
+.tempsDonutLegend { display: grid; gap: 10px; }
+.tempsDonutLegendRow { display: grid; grid-template-columns: 12px minmax(120px, 1fr) 42px 42px; gap: 9px; align-items: center; font-size: 13px; }
+.tempsDonutLegendRow i { width: 10px; height: 10px; border-radius: 50%; }
+.tempsDonutLegendRow b, .tempsDonutLegendRow em { text-align: right; font-style: normal; font-weight: 800; }
+.tempsDonutLegendRow em { color: #555; }
 .detailLink { position: absolute; right: 22px; bottom: 18px; border: 0; background: transparent; color: #1d5fd0; font-weight: 800; padding: 0; font-size: 13px; }
 .recharts-cartesian-axis-tick-value { fill: #555; }
 .recharts-default-tooltip { border-radius: 12px !important; border-color: #ddd !important; }
-@media (max-width: 1280px) { .donutCardBody { grid-template-columns: 1fr; } .donutWrap { max-width: 320px; width: 100%; margin: 0 auto; } }
+@media (max-width: 1280px) { .donutCardBody { grid-template-columns: 1fr; } .tempsDonutWrap { max-width: 320px; width: 100%; margin: 0 auto; } }
 
 .kpiCard.clean { justify-content: center; text-align: left; }
 .kpiCard.clean .kpiValue { font-size: 34px; }
@@ -6031,8 +6031,8 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
 .originDistrictCell.od8 { grid-column: 4; grid-row: 1; }
 .originDistrictCell.od9 { grid-column: 4; grid-row: 2; }
 .originDistrictCell.od10 { grid-column: 4 / span 2; grid-row: 3; }
-.donutWrap .recharts-wrapper { overflow: visible; }
-.donutWrap svg { overflow: visible; }
+.tempsDonutWrap .recharts-wrapper { overflow: visible; }
+.tempsDonutWrap svg { overflow: visible; }
 
 
 .sameDistrictSummary { display: grid; grid-template-columns: 150px 1fr; gap: 18px; align-items: center; margin-bottom: 10px; }
@@ -6656,7 +6656,7 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
   .tempsInsightGrid { grid-template-columns: 1fr; }
   .tempsInsightCard.district { grid-template-columns: 1fr; }
  .dashboardStats, .dashboardChartsGrid { grid-template-columns: 1fr; } .dashboardTopControls { justify-content: flex-start; } }
-@media (max-width: 700px) { .kpiCard { padding: 18px; } .donutLegendRow { grid-template-columns: 12px 1fr auto; } .donutLegendRow em { display: none; } }
+@media (max-width: 700px) { .kpiCard { padding: 18px; } .tempsDonutLegendRow { grid-template-columns: 12px 1fr auto; } .tempsDonutLegendRow em { display: none; } }
 
 /* Activitats · filtros, contador, imagen y exportación */
 .activitiesToolbar {
@@ -6872,8 +6872,8 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
 .originDistrictCell.od8 { grid-column: 4; grid-row: 1; }
 .originDistrictCell.od9 { grid-column: 4; grid-row: 2; }
 .originDistrictCell.od10 { grid-column: 4 / span 2; grid-row: 3; }
-.donutWrap .recharts-wrapper { overflow: visible; }
-.donutWrap svg { overflow: visible; }
+.tempsDonutWrap .recharts-wrapper { overflow: visible; }
+.tempsDonutWrap svg { overflow: visible; }
 
 
 .sameDistrictSummary { display: grid; grid-template-columns: 150px 1fr; gap: 18px; align-items: center; margin-bottom: 10px; }
@@ -8399,42 +8399,42 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
   align-items: center;
 }
 
-.donutWrap {
+.tempsDonutWrap {
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr);
   gap: 12px;
   align-items: center;
 }
 
-.donutChart {
+.tempsDonutChart {
   width: 120px;
   height: 120px;
   transform: rotate(-90deg);
 }
 
-.donutBase {
+.tempsDonutBase {
   fill: none;
   stroke: #eee;
   stroke-width: 18;
 }
 
-.donutSegment {
+.tempsDonutSegment {
   fill: none;
   stroke-width: 18;
   stroke-linecap: butt;
   transition: stroke-width .18s ease;
 }
 
-.donutHole {
+.tempsDonutHole {
   fill: #fff;
 }
 
-.donutLegend {
+.tempsDonutLegend {
   display: grid;
   gap: 7px;
 }
 
-.donutLegend span {
+.tempsDonutLegend span {
   display: grid;
   grid-template-columns: 10px minmax(0,1fr) auto;
   gap: 7px;
@@ -8443,19 +8443,19 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
   font-weight: 850;
 }
 
-.donutLegend i {
+.tempsDonutLegend i {
   width: 9px;
   height: 9px;
   border-radius: 999px;
 }
 
-.donutLegend b {
+.tempsDonutLegend b {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.donutLegend em {
+.tempsDonutLegend em {
   color: #555;
   font-style: normal;
 }
@@ -8710,6 +8710,75 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
   .tempsV2Counter.real {
     min-height: 245px !important;
   }
+}
+
+
+/* FIX: els donuts generals del Dashboard no han de ser afectats pels estils de Temps */
+.donutChart:not(.tempsDonutChart),
+.donutChart:not(.tempsDonutChart) svg {
+  transform-origin: center center;
+}
+
+.tempsDonutWrap {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.tempsDonutChart {
+  width: 120px;
+  height: 120px;
+  transform: rotate(-90deg);
+  overflow: visible;
+}
+
+.tempsDonutBase {
+  fill: none;
+  stroke: #eee;
+  stroke-width: 18;
+}
+
+.tempsDonutSegment {
+  fill: none;
+  stroke-width: 18;
+  stroke-linecap: butt;
+  transition: stroke-width .18s ease;
+}
+
+.tempsDonutHole {
+  fill: #fff;
+}
+
+.tempsDonutLegend {
+  display: grid;
+  gap: 7px;
+}
+
+.tempsDonutLegend span {
+  display: grid;
+  grid-template-columns: 10px minmax(0,1fr) auto;
+  gap: 7px;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.tempsDonutLegend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+}
+
+.tempsDonutLegend b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tempsDonutLegend em {
+  color: #555;
+  font-style: normal;
 }
 
 `;
