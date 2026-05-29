@@ -732,6 +732,24 @@ function BrandMark({ className = "" }) {
 }
 
 
+function getNavInitial(label) {
+  const clean = String(label || "").trim();
+  const special = {
+    Dashboard: "D",
+    "Temps de Capitalitat": "T",
+    Direcció: "Di",
+    Activitats: "A",
+    Propostes: "P",
+    Calendari: "C",
+    Espais: "E",
+    "Dades inscripcions": "I",
+    Pressupost: "€",
+  };
+
+  return special[clean] || clean.slice(0, 2).toUpperCase();
+}
+
+
 function getVisibleNavItems(role) {
   const normalizedRole = String(role || "").toLowerCase();
 
@@ -785,15 +803,51 @@ function formatRoleLabel(role) {
 
 
 function Shell({ children, view, setView, rows, status, userName, role, onLogout }) {
-  return (
-    <main className="app">
-      <aside className="sidebar">
-        <BrandMark />
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("cmaSidebarCollapsed") === "true";
+    } catch (error) {
+      return false;
+    }
+  });
 
-        <nav>
-          {getVisibleNavItems(role).map(([id, label]) => (
-            <button key={id} onClick={() => setView(id)} className={view === id ? "active" : ""}>
-              {label}
+  useEffect(() => {
+    try {
+      localStorage.setItem("cmaSidebarCollapsed", sidebarCollapsed ? "true" : "false");
+    } catch (error) {
+      // localStorage pot no estar disponible en algun navegador; no bloquegem la web.
+    }
+  }, [sidebarCollapsed]);
+
+  const navItems = getVisibleNavItems(role);
+
+  return (
+    <main className={`app ${sidebarCollapsed ? "sidebarCollapsed" : ""}`}>
+      <aside className="sidebar" aria-label="Menú principal">
+        <div className="sidebarTop">
+          <BrandMark />
+          <button
+            type="button"
+            className="sidebarToggle"
+            onClick={() => setSidebarCollapsed((value) => !value)}
+            aria-label={sidebarCollapsed ? "Obrir menú" : "Amagar menú"}
+            title={sidebarCollapsed ? "Obrir menú" : "Amagar menú"}
+          >
+            {sidebarCollapsed ? "→" : "←"}
+          </button>
+        </div>
+
+        <nav className="sidebarNav" aria-label="Navegació principal">
+          {navItems.map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setView(id)}
+              className={view === id ? "active" : ""}
+              title={label}
+              aria-label={label}
+            >
+              <span className="navIcon" aria-hidden="true">{getNavInitial(label)}</span>
+              <span className="navLabel">{label}</span>
             </button>
           ))}
         </nav>
@@ -9102,6 +9156,304 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
   .inscriptionsSvgDonut {
     width: 210px;
     height: 210px;
+  }
+}
+
+
+/* Sidebar V2 · plegable, amb scroll intern i sense solapar el peu */
+.app {
+  grid-template-columns: var(--sidebar-width, 280px) minmax(0, 1fr) !important;
+  transition: grid-template-columns .24s ease;
+}
+
+.app.sidebarCollapsed {
+  --sidebar-width: 84px;
+}
+
+.sidebar {
+  position: sticky !important;
+  top: 0 !important;
+  height: 100vh !important;
+  min-height: 0 !important;
+  padding: 22px 18px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 16px !important;
+  overflow: hidden !important;
+}
+
+.sidebarTop {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  gap: 10px;
+  align-items: start;
+  flex: 0 0 auto;
+}
+
+.sidebarTop .brand {
+  margin-bottom: 0 !important;
+  min-width: 0;
+}
+
+.sidebarToggle {
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(17,17,17,.10);
+  background: #fff;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-weight: 950;
+  line-height: 1;
+  box-shadow: 0 8px 22px rgba(17,17,17,.05);
+  transition: transform .18s ease, background .18s ease;
+}
+
+.sidebarToggle:hover {
+  background: rgba(90,169,230,.12);
+  transform: translateY(-1px);
+}
+
+.sidebarNav {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding: 4px 4px 18px !important;
+  margin: 0 -4px !important;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(90,169,230,.45) transparent;
+}
+
+.sidebarNav::-webkit-scrollbar {
+  width: 7px;
+}
+
+.sidebarNav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebarNav::-webkit-scrollbar-thumb {
+  background: rgba(90,169,230,.45);
+  border-radius: 999px;
+}
+
+.sidebarNav button {
+  display: grid !important;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  margin-bottom: 7px !important;
+  padding: 9px 12px !important;
+}
+
+.navIcon {
+  width: 34px;
+  height: 34px;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  background: rgba(17,17,17,.045);
+  color: #111;
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: -.04em;
+  flex-shrink: 0;
+}
+
+.sidebarNav button.active .navIcon,
+.sidebarNav button:hover .navIcon {
+  background: rgba(255,255,255,.26);
+  color: inherit;
+}
+
+.navLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sideMeta {
+  position: static !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  flex: 0 0 auto !important;
+  max-height: 220px;
+  overflow: auto;
+  padding: 14px !important;
+  border-radius: 18px !important;
+  margin-top: auto;
+}
+
+.sideMeta strong {
+  font-size: 28px !important;
+}
+
+.userBox {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.userBox button {
+  margin-top: 6px;
+}
+
+/* Estat plegat */
+.app.sidebarCollapsed .sidebar {
+  padding: 18px 12px !important;
+  align-items: stretch;
+}
+
+.app.sidebarCollapsed .sidebarTop {
+  grid-template-columns: 1fr;
+  justify-items: center;
+}
+
+.app.sidebarCollapsed .brand {
+  justify-content: center;
+  margin-bottom: 0 !important;
+}
+
+.app.sidebarCollapsed .brandText {
+  display: none !important;
+}
+
+.app.sidebarCollapsed .brandLogo {
+  width: 44px !important;
+  margin: 0 !important;
+}
+
+.app.sidebarCollapsed .sidebarToggle {
+  width: 42px;
+  height: 32px;
+  border-radius: 14px;
+}
+
+.app.sidebarCollapsed .sidebarNav {
+  margin: 0 !important;
+  padding: 2px 0 16px !important;
+}
+
+.app.sidebarCollapsed .sidebarNav button {
+  grid-template-columns: 1fr;
+  justify-items: center;
+  padding: 8px !important;
+  border-radius: 18px !important;
+  min-height: 50px;
+}
+
+.app.sidebarCollapsed .navIcon {
+  width: 38px;
+  height: 38px;
+  border-radius: 15px;
+}
+
+.app.sidebarCollapsed .navLabel {
+  display: none !important;
+}
+
+.app.sidebarCollapsed .sideMeta {
+  padding: 10px 8px !important;
+  text-align: center;
+  border-radius: 16px !important;
+  max-height: 170px;
+}
+
+.app.sidebarCollapsed .sideMeta p,
+.app.sidebarCollapsed .sideMeta span,
+.app.sidebarCollapsed .userBox small,
+.app.sidebarCollapsed .userBox b {
+  display: none !important;
+}
+
+.app.sidebarCollapsed .sideMeta strong {
+  font-size: 18px !important;
+  margin: 0 !important;
+}
+
+.app.sidebarCollapsed .userBox {
+  margin-top: 8px;
+}
+
+.app.sidebarCollapsed .userBox button {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 !important;
+  font-size: 0;
+  border-radius: 12px;
+}
+
+.app.sidebarCollapsed .userBox button::before {
+  content: "↺";
+  font-size: 18px;
+  font-weight: 950;
+}
+
+/* Millor comportament en pantalles baixes o zoom alt */
+@media (max-height: 760px) {
+  .sidebar {
+    padding-top: 16px !important;
+    padding-bottom: 14px !important;
+    gap: 10px !important;
+  }
+
+  .sidebarTop .brandLogo {
+    width: 38px;
+  }
+
+  .sidebarTop .brandText {
+    font-size: 12px;
+  }
+
+  .sidebarNav button {
+    min-height: 42px;
+    margin-bottom: 5px !important;
+  }
+
+  .sideMeta {
+    max-height: 150px;
+    padding: 10px !important;
+  }
+
+  .sideMeta strong {
+    font-size: 22px !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .app {
+    --sidebar-width: 84px;
+  }
+
+  .sidebar {
+    padding: 16px 10px !important;
+  }
+
+  .brandText,
+  .navLabel,
+  .sideMeta p,
+  .sideMeta span,
+  .userBox b,
+  .userBox small {
+    display: none !important;
+  }
+
+  .sidebarTop {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .sidebarNav button {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .content {
+    padding: 22px !important;
   }
 }
 
