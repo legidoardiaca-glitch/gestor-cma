@@ -757,6 +757,7 @@ function getVisibleNavItems(role) {
     ["dashboard", "Dashboard"],
     ["temps", "Temps de Capitalitat"],
     ["direccio", "Direcció"],
+    ["pressupost", "Pressupost"],
     ["activitats", "Activitats"],
     ["propostes", "Propostes"],
     ["calendari", "Calendari"],
@@ -4373,6 +4374,7 @@ function LoginScreen({ userName, setUserName, role, setRole, onEnter }) {
         <div className="roleGrid">
           {[
             ["direccio", "Direcció"],
+    ["pressupost", "Pressupost"],
             ["editor", "Editor/a"],
             ["cap_projecte", "Cap projecte"],
             ["admin", "Admin"],
@@ -5040,6 +5042,880 @@ function TempsCapitalitatView({ rows, inscripcions = [], apiSpaces = [] }) {
 }
 
 
+
+function parseBudgetMoney(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+
+  const raw = String(value || "")
+    .replace(/\s/g, "")
+    .replace(/€/g, "")
+    .replace(/[^\d,.-]/g, "");
+
+  if (!raw) return 0;
+
+  let normalized = raw;
+
+  if (raw.includes(",") && raw.includes(".")) {
+    normalized = raw.replace(/\./g, "").replace(",", ".");
+  } else if (raw.includes(",")) {
+    normalized = raw.replace(",", ".");
+  }
+
+  const number = Number(normalized);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function formatBudgetCurrency(value, compact = false) {
+  const number = Number(value || 0);
+
+  if (compact && Math.abs(number) >= 1000000) {
+    return `${(number / 1000000).toLocaleString("ca-ES", { maximumFractionDigits: 2 })} M €`;
+  }
+
+  if (compact && Math.abs(number) >= 1000) {
+    return `${(number / 1000).toLocaleString("ca-ES", { maximumFractionDigits: 0 })} k €`;
+  }
+
+  return `${number.toLocaleString("ca-ES", { maximumFractionDigits: 0 })} €`;
+}
+
+function getBudgetText(row, key, fallback = "") {
+  return String(row?.[key] ?? fallback ?? "").trim();
+}
+
+function getBudgetModality(row) {
+  return getModalitatKey(row?.modalitat || row?.MODALITAT || "");
+}
+
+function normalizeBudgetProposal(row) {
+  return {
+    id: getBudgetText(row, "id"),
+    idIntern: getBudgetText(row, "id_intern"),
+    idWeb: getBudgetText(row, "id_web"),
+    manager: getManagerLabel(row?.encarregada),
+    managerKey: getManagerKey(row?.encarregada),
+    title: getBudgetText(row, "titol_activitat") || getBudgetText(row, "titol_activitat_web") || "Sense títol",
+    authors: getBudgetText(row, "autores"),
+    modality: getBudgetModality(row),
+    category: getBudgetText(row, "categoria") || "Sense categoria",
+    startDate: getBudgetText(row, "data_inici"),
+    endDate: getBudgetText(row, "data_final"),
+    space: getBudgetText(row, "espai_on_es_desenvolupara_l_activitat") || getBudgetText(row, "espai_proposat"),
+    district: getBudgetText(row, "districte") || "Sense districte",
+    institution: getBudgetText(row, "institucio"),
+    gene: getBudgetText(row, "gene"),
+    commemoration: getBudgetText(row, "commemoracions"),
+    agreement: getBudgetText(row, "acord_firmat"),
+    international: getBudgetText(row, "international"),
+    heritage: getBudgetText(row, "patrimoni"),
+    sponsorship: getBudgetText(row, "patrocini"),
+    group: getBudgetText(row, "agrupador"),
+    amountVat: parseBudgetMoney(row?.import_capi_amb_iva),
+    amountNoVat: parseBudgetMoney(row?.import_capi_sense_iva),
+    raw: row,
+  };
+}
+
+function getActivityDate(row) {
+  return row?.dataFinal || row?.dataInici || "";
+}
+
+function isActivityFinished(row, today) {
+  const date = getActivityDate(row);
+  return isValidDateString(date) && date < today;
+}
+
+function getBudgetMonthLabel(monthKey) {
+  if (!monthKey || monthKey === "Sense mes") return "—";
+  const labels = ["GEN", "FEB", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OCT", "NOV", "DES"];
+  const month = Number(String(monthKey).slice(5, 7));
+  return labels[Math.max(0, Math.min(11, month - 1))] || monthKey;
+}
+
+function monthKeyFromDate(value) {
+  return isValidDateString(value) ? String(value).slice(0, 7) : "Sense mes";
+}
+
+function buildBudgetModel(budgetRows, activityRows) {
+  const today = toLocalISODate(new Date());
+  const activitiesByProposal = groupBy(activityRows.filter((row) => row.id), "id");
+
+  const proposals = budgetRows
+    .map(normalizeBudgetProposal)
+    .filter((proposal) => proposal.id || proposal.title)
+    .map((proposal) => {
+      const activities = activitiesByProposal[proposal.id] || [];
+      const activityCount = Math.max(activities.length, 1);
+      const finishedActivities = activities.filter((activity) => isActivityFinished(activity, today));
+      const pendingActivities = activities.filter((activity) => !isActivityFinished(activity, today));
+      const syntheticPending = activities.length ? pendingActivities.length : (isValidDateString(proposal.endDate) && proposal.endDate < today ? 0 : 1);
+      const syntheticFinished = activities.length ? finishedActivities.length : (syntheticPending ? 0 : 1);
+      const unitCost = proposal.amountVat / activityCount;
+
+      return {
+        ...proposal,
+        activities,
+        activityCount,
+        finishedCount: syntheticFinished,
+        pendingCount: syntheticPending,
+        unitCost,
+        executedBudget: syntheticFinished * unitCost,
+        pendingBudget: syntheticPending * unitCost,
+        hasBudget: proposal.amountVat > 0 || proposal.amountNoVat > 0,
+        missingNoVat: proposal.amountVat > 0 && proposal.amountNoVat <= 0,
+        missingVat: proposal.amountNoVat > 0 && proposal.amountVat <= 0,
+        noAgreementWithBudget: proposal.amountVat > 0 && !normalizeLooseText(proposal.agreement),
+      };
+    });
+
+  return proposals;
+}
+
+function sumBudget(items, key) {
+  return items.reduce((sum, item) => sum + Number(item[key] || 0), 0);
+}
+
+function groupBudgetBy(items, keyFn) {
+  const map = {};
+
+  items.forEach((item) => {
+    const key = keyFn(item) || "Sense dades";
+
+    if (!map[key]) {
+      map[key] = {
+        key,
+        proposals: 0,
+        activities: 0,
+        finished: 0,
+        pending: 0,
+        amountVat: 0,
+        amountNoVat: 0,
+        executed: 0,
+        pendingBudget: 0,
+      };
+    }
+
+    map[key].proposals += 1;
+    map[key].activities += item.activityCount;
+    map[key].finished += item.finishedCount;
+    map[key].pending += item.pendingCount;
+    map[key].amountVat += item.amountVat;
+    map[key].amountNoVat += item.amountNoVat;
+    map[key].executed += item.executedBudget;
+    map[key].pendingBudget += item.pendingBudget;
+  });
+
+  return Object.values(map).map((entry) => ({
+    ...entry,
+    avgCost: entry.activities ? entry.amountVat / entry.activities : 0,
+    share: 0,
+  }));
+}
+
+function applyBudgetFilters(proposals, filters) {
+  return proposals.filter((proposal) => {
+    const matchesMode = filters.modality === "all" || proposal.modality === filters.modality;
+    const matchesManager = filters.manager === "all" || proposal.managerKey === filters.manager;
+    const matchesCategory = filters.category === "all" || proposal.category === filters.category;
+    const matchesQuery = !filters.query || `${proposal.id} ${proposal.title} ${proposal.manager} ${proposal.category}`.toLowerCase().includes(filters.query.toLowerCase());
+
+    return matchesMode && matchesManager && matchesCategory && matchesQuery;
+  });
+}
+
+function BudgetKpi({ label, value, sublabel, tone = "blue", icon = "€" }) {
+  return (
+    <article className={`budgetKpi ${tone}`}>
+      <div>
+        <span>{label}</span>
+        <strong>{value}</strong>
+        <p>{sublabel}</p>
+      </div>
+      <i>{icon}</i>
+    </article>
+  );
+}
+
+function BudgetComboChart({ data }) {
+  const width = 720;
+  const height = 330;
+  const pad = { left: 54, right: 64, top: 28, bottom: 54 };
+  const chartW = width - pad.left - pad.right;
+  const chartH = height - pad.top - pad.bottom;
+  const maxActivities = Math.max(1, ...data.map((item) => Math.max(item.finished, item.pending)));
+  const maxCost = Math.max(1, ...data.map((item) => item.avgCost));
+
+  const points = data.map((item, index) => {
+    const groupX = pad.left + (index + 0.5) * (chartW / data.length);
+    const y = pad.top + chartH - (item.avgCost / maxCost) * chartH;
+    return { x: groupX, y, value: item.avgCost };
+  });
+
+  const linePath = smoothPath(points);
+
+  return (
+    <div className="budgetChartCard wide">
+      <div className="budgetChartHead">
+        <div>
+          <h2>Activitats i cost per modalitat</h2>
+          <p>Finalitzades, pendents i cost mitjà estimat per activitat.</p>
+        </div>
+        <span>Modalitat A/B/C</span>
+      </div>
+
+      <svg className="budgetComboSvg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Activitats i cost per modalitat">
+        {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
+          const y = pad.top + chartH - tick * chartH;
+          return (
+            <g key={tick}>
+              <line x1={pad.left} x2={width - pad.right} y1={y} y2={y} className="gridLine" />
+              <text x={pad.left - 10} y={y + 4} textAnchor="end">{Math.round(tick * maxActivities)}</text>
+            </g>
+          );
+        })}
+
+        {data.map((item, index) => {
+          const groupW = chartW / data.length;
+          const baseX = pad.left + index * groupW;
+          const barW = 42;
+          const finishedH = (item.finished / maxActivities) * chartH;
+          const pendingH = (item.pending / maxActivities) * chartH;
+          const x1 = baseX + groupW / 2 - barW - 5;
+          const x2 = baseX + groupW / 2 + 5;
+
+          return (
+            <g key={item.key}>
+              <rect x={x1} y={pad.top + chartH - finishedH} width={barW} height={finishedH} rx="8" className="barFinished" />
+              <rect x={x2} y={pad.top + chartH - pendingH} width={barW} height={pendingH} rx="8" className="barPending" />
+              <text x={x1 + barW / 2} y={pad.top + chartH - finishedH - 8} textAnchor="middle" className="barLabel">{item.finished}</text>
+              <text x={x2 + barW / 2} y={pad.top + chartH - pendingH - 8} textAnchor="middle" className="barLabel">{item.pending}</text>
+              <text x={baseX + groupW / 2} y={height - 18} textAnchor="middle" className="axisLabel">{item.key}</text>
+            </g>
+          );
+        })}
+
+        <path d={linePath} className="costLine" />
+        {points.map((point, index) => (
+          <g key={index}>
+            <circle cx={point.x} cy={point.y} r="6" className="costDot" />
+            <text x={point.x} y={point.y - 13} textAnchor="middle" className="costLabel">{formatBudgetCurrency(point.value, true)}</text>
+          </g>
+        ))}
+      </svg>
+
+      <div className="budgetLegend">
+        <span><i className="finished" /> Finalitzades</span>
+        <span><i className="pending" /> Pendents</span>
+        <span><i className="line" /> Cost mitjà</span>
+      </div>
+    </div>
+  );
+}
+
+function BudgetBubbleChart({ data }) {
+  const width = 620;
+  const height = 330;
+  const pad = { left: 58, right: 32, top: 26, bottom: 52 };
+  const chartW = width - pad.left - pad.right;
+  const chartH = height - pad.top - pad.bottom;
+  const maxPending = Math.max(1, ...data.map((item) => item.pending));
+  const maxCost = Math.max(1, ...data.map((item) => item.avgCost));
+  const maxBudget = Math.max(1, ...data.map((item) => item.pendingBudget));
+  const colors = { A: "#9CA3AF", B: "#3478F6", C: "#8B5CF6" };
+
+  return (
+    <div className="budgetChartCard">
+      <div className="budgetChartHead">
+        <div>
+          <h2>Impacte econòmic pendent</h2>
+          <p>Activitats pendents × cost mitjà × pressupost pendent.</p>
+        </div>
+      </div>
+
+      <svg className="budgetBubbleSvg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Impacte econòmic pendent">
+        {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
+          const x = pad.left + tick * chartW;
+          const y = pad.top + chartH - tick * chartH;
+          return (
+            <g key={tick}>
+              <line x1={x} x2={x} y1={pad.top} y2={pad.top + chartH} className="gridLine" />
+              <line x1={pad.left} x2={pad.left + chartW} y1={y} y2={y} className="gridLine" />
+            </g>
+          );
+        })}
+
+        {data.map((item) => {
+          const x = pad.left + (item.pending / maxPending) * chartW;
+          const y = pad.top + chartH - (item.avgCost / maxCost) * chartH;
+          const radius = 18 + Math.sqrt(item.pendingBudget / maxBudget) * 35;
+          return (
+            <g key={item.key} className="bubbleGroup">
+              <circle cx={x} cy={y} r={radius} fill={colors[item.key] || "#5AA9E6"} opacity=".72" />
+              <text x={x} y={y + 4} textAnchor="middle" className="bubbleLetter">{item.key}</text>
+              <text x={x + radius + 8} y={y + 4} className="bubbleValue">{formatBudgetCurrency(item.pendingBudget, true)}</text>
+            </g>
+          );
+        })}
+
+        <text x={pad.left + chartW / 2} y={height - 10} textAnchor="middle" className="axisLabel">Activitats pendents</text>
+        <text x="16" y={pad.top + chartH / 2} textAnchor="middle" className="axisLabel" transform={`rotate(-90 16 ${pad.top + chartH / 2})`}>Cost mitjà</text>
+      </svg>
+    </div>
+  );
+}
+
+function BudgetWaterfall({ executed, modalData }) {
+  const width = 620;
+  const height = 290;
+  const pad = { left: 36, right: 28, top: 34, bottom: 50 };
+  const steps = [
+    { label: "Executat", value: executed, type: "base" },
+    ...modalData.map((item) => ({ label: `Pendent ${item.key}`, value: item.pendingBudget, type: item.key })),
+  ];
+  const total = steps.reduce((sum, step) => sum + step.value, 0);
+  const max = Math.max(1, total);
+  let cumulative = 0;
+
+  return (
+    <div className="budgetChartCard">
+      <div className="budgetChartHead">
+        <div>
+          <h2>Evolució del pressupost</h2>
+          <p>Executat estimat + pendent per modalitat.</p>
+        </div>
+        <b>{formatBudgetCurrency(total, true)}</b>
+      </div>
+
+      <svg className="budgetWaterfallSvg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Evolució del pressupost">
+        {steps.map((step, index) => {
+          const stepW = (width - pad.left - pad.right) / (steps.length + 1);
+          const x = pad.left + index * stepW + 16;
+          const y0 = pad.top + (1 - cumulative / max) * (height - pad.top - pad.bottom);
+          const y1 = pad.top + (1 - (cumulative + step.value) / max) * (height - pad.top - pad.bottom);
+          const barY = Math.min(y0, y1);
+          const barH = Math.max(8, Math.abs(y1 - y0));
+          cumulative += step.value;
+
+          return (
+            <g key={step.label}>
+              <rect x={x} y={barY} width={stepW * .72} height={barH} rx="6" className={`waterfall ${step.type}`} />
+              <text x={x + stepW * .36} y={barY - 8} textAnchor="middle" className="waterfallValue">{formatBudgetCurrency(step.value, true)}</text>
+              <text x={x + stepW * .36} y={height - 18} textAnchor="middle" className="axisLabel">{step.label}</text>
+              {index < steps.length - 1 && <line x1={x + stepW * .72} x2={x + stepW + 16} y1={y1} y2={y1} className="waterfallConnector" />}
+            </g>
+          );
+        })}
+        <rect x={width - pad.right - 78} y={pad.top} width="74" height={height - pad.top - pad.bottom} rx="6" className="waterfall total" />
+        <text x={width - pad.right - 41} y={pad.top - 8} textAnchor="middle" className="waterfallValue">{formatBudgetCurrency(total, true)}</text>
+        <text x={width - pad.right - 41} y={height - 18} textAnchor="middle" className="axisLabel">Total</text>
+      </svg>
+    </div>
+  );
+}
+
+function BudgetTrendChart({ data }) {
+  const width = 640;
+  const height = 290;
+  const pad = { left: 48, right: 26, top: 26, bottom: 44 };
+  const chartW = width - pad.left - pad.right;
+  const chartH = height - pad.top - pad.bottom;
+  const max = Math.max(1, ...data.flatMap((item) => [item.executed, item.pending]));
+  const executedPoints = data.map((item, index) => ({
+    x: pad.left + (index / Math.max(1, data.length - 1)) * chartW,
+    y: pad.top + chartH - (item.executed / max) * chartH,
+  }));
+  const pendingPoints = data.map((item, index) => ({
+    x: pad.left + (index / Math.max(1, data.length - 1)) * chartW,
+    y: pad.top + chartH - (item.pending / max) * chartH,
+  }));
+
+  return (
+    <div className="budgetChartCard">
+      <div className="budgetChartHead">
+        <div>
+          <h2>Tendència mensual d’execució</h2>
+          <p>Pressupost executat i pendent estimat per mes.</p>
+        </div>
+      </div>
+
+      <svg className="budgetTrendSvg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Tendència mensual d'execució">
+        {[0, .25, .5, .75, 1].map((tick) => {
+          const y = pad.top + chartH - tick * chartH;
+          return <line key={tick} x1={pad.left} x2={pad.left + chartW} y1={y} y2={y} className="gridLine" />;
+        })}
+        <path d={smoothPath(executedPoints)} className="trendExecuted" />
+        <path d={smoothPath(pendingPoints)} className="trendPending" />
+        {data.map((item, index) => (
+          <text key={item.month} x={executedPoints[index].x} y={height - 12} textAnchor="middle" className="axisLabel">{item.label}</text>
+        ))}
+        {executedPoints.map((point, index) => <circle key={`e${index}`} cx={point.x} cy={point.y} r="4" className="trendDot executed" />)}
+        {pendingPoints.map((point, index) => <circle key={`p${index}`} cx={point.x} cy={point.y} r="4" className="trendDot pending" />)}
+      </svg>
+      <div className="budgetLegend">
+        <span><i className="finished" /> Executat estimat</span>
+        <span><i className="pending" /> Pendent estimat</span>
+      </div>
+    </div>
+  );
+}
+
+function BudgetHorizontalBars({ title, subtitle, data, valueKey = "amountVat", maxItems = 7 }) {
+  const list = [...data].sort((a, b) => b[valueKey] - a[valueKey]).slice(0, maxItems);
+  const max = Math.max(1, ...list.map((item) => item[valueKey]));
+
+  return (
+    <div className="budgetChartCard">
+      <div className="budgetChartHead">
+        <div>
+          <h2>{title}</h2>
+          <p>{subtitle}</p>
+        </div>
+      </div>
+
+      <div className="budgetBarList">
+        {list.map((item, index) => (
+          <div className="budgetBarRow" key={item.key || item.id || index}>
+            <span>{item.key || item.title}</span>
+            <div><i style={{ width: `${(item[valueKey] / max) * 100}%` }} /></div>
+            <b>{formatBudgetCurrency(item[valueKey], true)}</b>
+            {item.avgCost !== undefined && <em>{formatBudgetCurrency(item.avgCost, true)}/act.</em>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BudgetModalityTable({ data }) {
+  const total = data.reduce((sum, item) => sum + item.amountVat, 0) || 1;
+
+  return (
+    <div className="budgetChartCard budgetTableCard">
+      <div className="budgetChartHead">
+        <div>
+          <h2>Detall per modalitat</h2>
+          <p>Propostes, activitats, cost mitjà i pes sobre el pressupost.</p>
+        </div>
+      </div>
+
+      <table className="budgetTable">
+        <thead>
+          <tr>
+            <th>Modalitat</th>
+            <th>Propostes</th>
+            <th>Finalitzades</th>
+            <th>Pendents</th>
+            <th>Cost mitjà</th>
+            <th>Pressupost</th>
+            <th>% total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((item) => {
+            const percent = Math.round((item.amountVat / total) * 100);
+            return (
+              <tr key={item.key}>
+                <td><span className={`budgetBadge ${item.key}`}>{item.key}</span></td>
+                <td>{item.proposals}</td>
+                <td>{item.finished}</td>
+                <td>{item.pending}</td>
+                <td>{formatBudgetCurrency(item.avgCost)}</td>
+                <td><strong>{formatBudgetCurrency(item.amountVat)}</strong></td>
+                <td><div className="budgetPct"><i style={{ width: `${percent}%` }} /> {percent}%</div></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function BudgetAlerts({ proposals }) {
+  const alerts = [
+    {
+      title: "Amb import però sense acord firmat",
+      value: proposals.filter((item) => item.noAgreementWithBudget).length,
+      tone: "red",
+    },
+    {
+      title: "Amb IVA però sense import sense IVA",
+      value: proposals.filter((item) => item.missingNoVat).length,
+      tone: "yellow",
+    },
+    {
+      title: "Sense import assignat",
+      value: proposals.filter((item) => !item.hasBudget).length,
+      tone: "blue",
+    },
+  ];
+
+  return (
+    <div className="budgetAlertCard">
+      <h2>Alertes econòmiques</h2>
+      <p>Controls ràpids sobre qualitat i risc documental.</p>
+      <div>
+        {alerts.map((alert) => (
+          <article className={alert.tone} key={alert.title}>
+            <strong>{alert.value}</strong>
+            <span>{alert.title}</span>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BudgetAccess({ onUnlocked }) {
+  const [password, setPassword] = useState("");
+  const [status, setStatus] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setSubmitting(true);
+    setStatus("");
+
+    try {
+      const response = await fetch("/api/budget-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || "Contrasenya incorrecta");
+      }
+
+      setPassword("");
+      onUnlocked();
+    } catch (error) {
+      setStatus(error.message || "No s'ha pogut validar l'accés");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <section className="budgetLock">
+      <div>
+        <span>🔐 Accés protegit</span>
+        <h1>Pressupost · Direcció</h1>
+        <p>Aquesta pestanya consulta dades econòmiques protegides. Introdueix la contrasenya per carregar el pressupost.</p>
+
+        <form onSubmit={handleSubmit}>
+          <input
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Contrasenya de pressupost"
+            autoComplete="current-password"
+          />
+          <button type="submit" disabled={submitting || !password.trim()}>
+            {submitting ? "Validant..." : "Entrar"}
+          </button>
+        </form>
+
+        {status && <strong className="budgetAccessError">{status}</strong>}
+      </div>
+    </section>
+  );
+}
+
+function BudgetView({ activityRows }) {
+  const [budgetRows, setBudgetRows] = useState([]);
+  const [authorized, setAuthorized] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadingBudget, setLoadingBudget] = useState(false);
+  const [error, setError] = useState("");
+  const [filters, setFilters] = useState({
+    modality: "all",
+    manager: "all",
+    category: "all",
+    query: "",
+  });
+
+  async function loadBudget() {
+    setLoadingBudget(true);
+    setError("");
+
+    try {
+      const response = await fetch("/api/budget");
+      const data = await response.json();
+
+      if (response.status === 401) {
+        setAuthorized(false);
+        setBudgetRows([]);
+        return;
+      }
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || "No s'ha pogut carregar pressupost");
+      }
+
+      setBudgetRows(data.rows || []);
+      setAuthorized(true);
+    } catch (err) {
+      setError(err.message || "Error carregant pressupost");
+    } finally {
+      setLoading(false);
+      setLoadingBudget(false);
+    }
+  }
+
+  useEffect(() => {
+    loadBudget();
+  }, []);
+
+  const proposals = useMemo(() => buildBudgetModel(budgetRows, activityRows), [budgetRows, activityRows]);
+  const filtered = useMemo(() => applyBudgetFilters(proposals, filters), [proposals, filters]);
+
+  const filterOptions = useMemo(() => ({
+    managers: Array.from(new Map(proposals.map((item) => [item.managerKey, item.manager])).entries())
+      .filter(([key]) => key)
+      .map(([key, label]) => ({ key, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, "ca")),
+    categories: Array.from(new Set(proposals.map((item) => item.category).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ca")),
+  }), [proposals]);
+
+  const totals = useMemo(() => {
+    const totalVat = sumBudget(filtered, "amountVat");
+    const totalNoVat = sumBudget(filtered, "amountNoVat");
+    const executed = sumBudget(filtered, "executedBudget");
+    const pending = sumBudget(filtered, "pendingBudget");
+    const activities = sumBudget(filtered, "activityCount");
+    const pendingActivities = sumBudget(filtered, "pendingCount");
+    const finishedActivities = sumBudget(filtered, "finishedCount");
+    const avgCost = activities ? totalVat / activities : 0;
+    const modalityData = groupBudgetBy(filtered, (item) => item.modality || "Sense modalitat")
+      .filter((item) => ["A", "B", "C"].includes(item.key))
+      .sort((a, b) => a.key.localeCompare(b.key));
+
+    const allModalities = ["A", "B", "C"].map((key) => modalityData.find((item) => item.key === key) || {
+      key,
+      proposals: 0,
+      activities: 0,
+      finished: 0,
+      pending: 0,
+      amountVat: 0,
+      amountNoVat: 0,
+      executed: 0,
+      pendingBudget: 0,
+      avgCost: 0,
+    });
+
+    const mostImpact = [...allModalities].sort((a, b) => b.pendingBudget - a.pendingBudget)[0] || { key: "—", pendingBudget: 0 };
+    const highestUnit = [...allModalities].sort((a, b) => b.avgCost - a.avgCost)[0] || { key: "—", avgCost: 0 };
+    const categoryData = groupBudgetBy(filtered, (item) => item.category);
+    const topProposals = [...filtered].sort((a, b) => b.amountVat - a.amountVat).slice(0, 10);
+    const topUnitCost = [...filtered].sort((a, b) => b.unitCost - a.unitCost).slice(0, 8);
+    const months = Array.from(new Set(filtered.flatMap((proposal) => proposal.activities.map((activity) => monthKeyFromDate(activity.dataInici)))))
+      .filter((month) => month !== "Sense mes")
+      .sort();
+
+    const trendMonths = months.length ? months : ["2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12"];
+    const monthlyTrend = trendMonths.map((month) => {
+      let executedMonth = 0;
+      let pendingMonth = 0;
+
+      filtered.forEach((proposal) => {
+        const unit = proposal.unitCost;
+        const matchingActivities = proposal.activities.length
+          ? proposal.activities.filter((activity) => monthKeyFromDate(activity.dataInici) === month)
+          : (monthKeyFromDate(proposal.startDate) === month ? [{ dataInici: proposal.startDate, dataFinal: proposal.endDate }] : []);
+
+        matchingActivities.forEach((activity) => {
+          if (isActivityFinished(activity, toLocalISODate(new Date()))) {
+            executedMonth += unit;
+          } else {
+            pendingMonth += unit;
+          }
+        });
+      });
+
+      return {
+        month,
+        label: getBudgetMonthLabel(month),
+        executed: executedMonth,
+        pending: pendingMonth,
+      };
+    });
+
+    return {
+      totalVat,
+      totalNoVat,
+      taxDiff: totalVat - totalNoVat,
+      executed,
+      pending,
+      activities,
+      pendingActivities,
+      finishedActivities,
+      avgCost,
+      allModalities,
+      mostImpact,
+      highestUnit,
+      categoryData,
+      topProposals,
+      topUnitCost,
+      monthlyTrend,
+    };
+  }, [filtered]);
+
+  if (loading) {
+    return (
+      <>
+        <Top title="Pressupost · Direcció" subtitle="Carregant accés econòmic segur..." />
+        <div className="budgetLoading">Carregant pressupost segur...</div>
+      </>
+    );
+  }
+
+  if (!authorized) {
+    return (
+      <>
+        <Top title="Pressupost · Direcció" subtitle="Anàlisi econòmica protegida del programa." />
+        <BudgetAccess onUnlocked={loadBudget} />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Top
+        title="Pressupost · Direcció"
+        subtitle="Anàlisi de l’estat econòmic, previsió d’execució i tendències per proposta, activitat i format."
+      >
+        <span className="budgetSecurePill">🔐 Accés protegit</span>
+      </Top>
+
+      <section className="budgetFilters">
+        <label>
+          <span>Buscar proposta</span>
+          <input
+            value={filters.query}
+            onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))}
+            placeholder="ID, títol, encarregada..."
+          />
+        </label>
+
+        <label>
+          <span>Modalitat</span>
+          <select value={filters.modality} onChange={(event) => setFilters((current) => ({ ...current, modality: event.target.value }))}>
+            <option value="all">Totes</option>
+            <option value="A">Modalitat A</option>
+            <option value="B">Modalitat B</option>
+            <option value="C">Modalitat C</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Encarregada</span>
+          <select value={filters.manager} onChange={(event) => setFilters((current) => ({ ...current, manager: event.target.value }))}>
+            <option value="all">Totes</option>
+            {filterOptions.managers.map((manager) => (
+              <option key={manager.key} value={manager.key}>{manager.label}</option>
+            ))}
+          </select>
+        </label>
+
+        <label>
+          <span>Categoria</span>
+          <select value={filters.category} onChange={(event) => setFilters((current) => ({ ...current, category: event.target.value }))}>
+            <option value="all">Totes</option>
+            {filterOptions.categories.map((category) => (
+              <option key={category} value={category}>{category}</option>
+            ))}
+          </select>
+        </label>
+
+        <button type="button" onClick={() => setFilters({ modality: "all", manager: "all", category: "all", query: "" })}>
+          Netejar filtres
+        </button>
+      </section>
+
+      {error && <div className="budgetError">{error}</div>}
+      {loadingBudget && <div className="budgetLoading inline">Actualitzant dades...</div>}
+
+      <section className="budgetKpiGrid">
+        <BudgetKpi label="Pressupost total amb IVA" value={formatBudgetCurrency(totals.totalVat, true)} sublabel={`${filtered.length} propostes filtrades`} icon="€" tone="blue" />
+        <BudgetKpi label="Executat estimat" value={formatBudgetCurrency(totals.executed, true)} sublabel={`${totals.finishedActivities} activitats finalitzades`} icon="✓" tone="green" />
+        <BudgetKpi label="Pendent estimat" value={formatBudgetCurrency(totals.pending, true)} sublabel={`${totals.pendingActivities} activitats pendents`} icon="⌛" tone="yellow" />
+        <BudgetKpi label="Cost mitjà / activitat" value={formatBudgetCurrency(totals.avgCost, true)} sublabel={`${totals.activities} activitats associades`} icon="÷" tone="purple" />
+        <BudgetKpi label="Modalitat amb més impacte" value={totals.mostImpact.key} sublabel={`${formatBudgetCurrency(totals.mostImpact.pendingBudget, true)} pendent`} icon="◎" tone="pink" />
+      </section>
+
+      <section className="budgetMainGrid">
+        <BudgetComboChart data={totals.allModalities} />
+        <BudgetBubbleChart data={totals.allModalities} />
+      </section>
+
+      <section className="budgetSecondGrid">
+        <BudgetTrendChart data={totals.monthlyTrend} />
+        <BudgetWaterfall executed={totals.executed} modalData={totals.allModalities} />
+      </section>
+
+      <section className="budgetThirdGrid">
+        <BudgetHorizontalBars title="Cost per tipologia / categoria" subtitle="Pressupost total i cost mitjà per activitat." data={totals.categoryData} valueKey="amountVat" maxItems={8} />
+        <BudgetHorizontalBars title="Top propostes per pressupost" subtitle="Propostes amb major import CAPI amb IVA." data={totals.topProposals} valueKey="amountVat" maxItems={10} />
+      </section>
+
+      <section className="budgetFourthGrid">
+        <BudgetModalityTable data={totals.allModalities} />
+        <BudgetAlerts proposals={filtered} />
+      </section>
+
+      <section className="budgetProposalTableCard">
+        <div className="budgetChartHead">
+          <div>
+            <h2>Ranking intel·ligent de propostes</h2>
+            <p>Cost mitjà per activitat, pressupost pendent i estat documental.</p>
+          </div>
+        </div>
+
+        <div className="budgetProposalTableWrap">
+          <table className="budgetTable proposal">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Proposta</th>
+                <th>Mod.</th>
+                <th>Enc.</th>
+                <th>Act.</th>
+                <th>Cost mitjà</th>
+                <th>Pendent</th>
+                <th>Total IVA</th>
+                <th>Acord</th>
+              </tr>
+            </thead>
+            <tbody>
+              {totals.topUnitCost.map((proposal) => (
+                <tr key={`${proposal.id}-${proposal.title}`}>
+                  <td>{proposal.id}</td>
+                  <td>{proposal.title}</td>
+                  <td><span className={`budgetBadge ${proposal.modality}`}>{proposal.modality || "—"}</span></td>
+                  <td>{proposal.manager}</td>
+                  <td>{proposal.activityCount}</td>
+                  <td>{formatBudgetCurrency(proposal.unitCost)}</td>
+                  <td>{formatBudgetCurrency(proposal.pendingBudget)}</td>
+                  <td><strong>{formatBudgetCurrency(proposal.amountVat)}</strong></td>
+                  <td>{proposal.agreement || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <p className="budgetNote">
+          El pressupost executat i pendent es calcula repartint l’import de cada proposta entre les activitats associades.
+        </p>
+      </section>
+    </>
+  );
+}
+
+
 function App() {
   const [authenticated, setAuthenticated] = useState(false);
   const [userName, setUserName] = useState("");
@@ -5185,6 +6061,7 @@ function App() {
         )}
         {view === "dashboard" && <DashboardView rows={scopedRows} inscripcions={inscripcions} />}
         {view === "temps" && <TempsCapitalitatView rows={scopedRows} inscripcions={inscripcions} apiSpaces={apiSpaces} />}
+        {view === "pressupost" && canSeeView(role, "direccio") && <BudgetView activityRows={rows} />}
         {view === "direccio" && canSeeView(role, "direccio") && (
           <DireccioView
             rows={scopedRows}
@@ -9454,6 +10331,575 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
 
   .content {
     padding: 22px !important;
+  }
+}
+
+
+/* Pressupost privat · dashboard direcció */
+.budgetSecurePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(52,120,246,.16);
+  background: rgba(52,120,246,.08);
+  color: #1d4ed8;
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.budgetLock {
+  min-height: 520px;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(90,169,230,.18), transparent 32%),
+    radial-gradient(circle at 88% 20%, rgba(255,99,146,.12), transparent 30%),
+    #fff;
+  border: 1px solid rgba(17,17,17,.10);
+  border-radius: 34px;
+  box-shadow: 0 18px 46px rgba(17,17,17,.04);
+}
+
+.budgetLock > div {
+  width: min(560px, 92%);
+  text-align: center;
+}
+
+.budgetLock span {
+  display: inline-flex;
+  margin-bottom: 16px;
+  background: #111;
+  color: #fff;
+  border-radius: 999px;
+  padding: 9px 13px;
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.budgetLock h1 {
+  font-size: clamp(42px, 6vw, 76px);
+  letter-spacing: -.075em;
+  margin-bottom: 10px;
+}
+
+.budgetLock form {
+  margin-top: 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.budgetLock input {
+  border: 1px solid rgba(17,17,17,.14);
+  background: rgba(255,255,255,.82);
+  border-radius: 18px;
+  padding: 16px 18px;
+  font-weight: 800;
+}
+
+.budgetLock button,
+.budgetFilters button {
+  border: 0;
+  background: #111;
+  color: #fff;
+  border-radius: 18px;
+  padding: 0 20px;
+  font-weight: 950;
+}
+
+.budgetAccessError,
+.budgetError {
+  display: block;
+  margin-top: 14px;
+  color: #b42318;
+  background: rgba(255,99,146,.10);
+  border: 1px solid rgba(255,99,146,.22);
+  border-radius: 16px;
+  padding: 12px 14px;
+}
+
+.budgetLoading {
+  display: grid;
+  place-items: center;
+  min-height: 300px;
+  background: #fff;
+  border: 1px solid rgba(17,17,17,.10);
+  border-radius: 28px;
+  font-weight: 950;
+}
+
+.budgetLoading.inline {
+  min-height: 0;
+  margin-bottom: 14px;
+  padding: 12px 16px;
+}
+
+.budgetFilters {
+  display: grid;
+  grid-template-columns: 1.4fr .8fr 1fr 1fr auto;
+  gap: 12px;
+  align-items: end;
+  background: rgba(255,255,255,.86);
+  border: 1px solid rgba(17,17,17,.10);
+  border-radius: 28px;
+  padding: 18px;
+  margin-bottom: 18px;
+  box-shadow: 0 12px 32px rgba(17,17,17,.035);
+}
+
+.budgetFilters label {
+  display: grid;
+  gap: 6px;
+}
+
+.budgetFilters span {
+  color: #666;
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.budgetFilters input,
+.budgetFilters select {
+  width: 100%;
+  border: 1px solid rgba(17,17,17,.12);
+  background: #fff;
+  border-radius: 16px;
+  padding: 13px 14px;
+  font-weight: 850;
+}
+
+.budgetKpiGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.budgetKpi {
+  min-height: 150px;
+  background: #fff;
+  border: 1px solid rgba(17,17,17,.10);
+  border-radius: 26px;
+  padding: 18px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  box-shadow: 0 12px 30px rgba(17,17,17,.035);
+}
+
+.budgetKpi span {
+  display: block;
+  color: #4b5563;
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+  letter-spacing: .045em;
+}
+
+.budgetKpi strong {
+  display: block;
+  font-size: clamp(30px, 3.4vw, 48px);
+  line-height: .92;
+  letter-spacing: -.075em;
+  margin: 14px 0 8px;
+}
+
+.budgetKpi p {
+  margin: 0;
+  color: #667085;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.budgetKpi i {
+  width: 58px;
+  height: 58px;
+  border-radius: 22px;
+  display: grid;
+  place-items: center;
+  font-style: normal;
+  font-size: 24px;
+  font-weight: 950;
+  flex: 0 0 auto;
+}
+
+.budgetKpi.blue i { background: rgba(52,120,246,.14); color: #2563eb; }
+.budgetKpi.green i { background: rgba(34,197,94,.15); color: #16a34a; }
+.budgetKpi.yellow i { background: rgba(255,228,94,.45); color: #a16207; }
+.budgetKpi.purple i { background: rgba(139,92,246,.15); color: #7c3aed; }
+.budgetKpi.pink i { background: rgba(255,99,146,.16); color: #db2777; }
+
+.budgetMainGrid,
+.budgetSecondGrid,
+.budgetThirdGrid,
+.budgetFourthGrid {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.budgetMainGrid {
+  grid-template-columns: 1.1fr .9fr;
+}
+
+.budgetSecondGrid,
+.budgetThirdGrid,
+.budgetFourthGrid {
+  grid-template-columns: 1fr 1fr;
+}
+
+.budgetChartCard,
+.budgetProposalTableCard,
+.budgetAlertCard {
+  background: rgba(255,255,255,.92);
+  border: 1px solid rgba(17,17,17,.10);
+  border-radius: 28px;
+  padding: 20px;
+  box-shadow: 0 14px 34px rgba(17,17,17,.035);
+  overflow: hidden;
+}
+
+.budgetChartCard.wide {
+  min-height: 420px;
+}
+
+.budgetChartHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.budgetChartHead h2 {
+  font-size: 20px;
+  margin: 0 0 5px;
+  letter-spacing: -.035em;
+}
+
+.budgetChartHead p {
+  margin: 0;
+  color: #667085;
+  font-size: 13px;
+}
+
+.budgetChartHead span,
+.budgetChartHead b {
+  background: rgba(52,120,246,.08);
+  color: #1d4ed8;
+  border: 1px solid rgba(52,120,246,.14);
+  border-radius: 999px;
+  padding: 8px 11px;
+  font-size: 12px;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.budgetComboSvg,
+.budgetBubbleSvg,
+.budgetWaterfallSvg,
+.budgetTrendSvg {
+  width: 100%;
+  height: auto;
+  display: block;
+  overflow: visible;
+}
+
+.gridLine {
+  stroke: rgba(17,17,17,.09);
+  stroke-dasharray: 4 5;
+}
+
+.budgetComboSvg text,
+.budgetBubbleSvg text,
+.budgetWaterfallSvg text,
+.budgetTrendSvg text {
+  font-size: 12px;
+  fill: #475467;
+  font-weight: 800;
+}
+
+.barFinished {
+  fill: url(#none);
+  fill: #2563eb;
+  filter: drop-shadow(0 10px 12px rgba(37,99,235,.18));
+}
+
+.barPending {
+  fill: #a9c7ff;
+}
+
+.barLabel,
+.costLabel,
+.waterfallValue,
+.bubbleValue {
+  fill: #111 !important;
+  font-size: 12px !important;
+  font-weight: 950 !important;
+}
+
+.axisLabel {
+  fill: #667085 !important;
+  font-size: 11px !important;
+  font-weight: 850 !important;
+}
+
+.costLine {
+  fill: none;
+  stroke: #ff3b53;
+  stroke-width: 3.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.costDot {
+  fill: #fff;
+  stroke: #ff3b53;
+  stroke-width: 3;
+}
+
+.budgetLegend {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  color: #475467;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.budgetLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.budgetLegend i {
+  width: 18px;
+  height: 9px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.budgetLegend .finished { background: #2563eb; }
+.budgetLegend .pending { background: #a9c7ff; }
+.budgetLegend .line { height: 3px; background: #ff3b53; }
+
+.bubbleLetter {
+  fill: #111 !important;
+  font-size: 18px !important;
+  font-weight: 950 !important;
+}
+
+.waterfall.base { fill: #9ca3af; }
+.waterfall.A { fill: #9ca3af; }
+.waterfall.B { fill: #2563eb; }
+.waterfall.C { fill: #8b5cf6; }
+.waterfall.total { fill: #061a3a; }
+.waterfallConnector {
+  stroke: #98a2b3;
+  stroke-dasharray: 5 5;
+}
+
+.trendExecuted,
+.trendPending {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.trendExecuted { stroke: #2563eb; }
+.trendPending { stroke: #a9c7ff; stroke-dasharray: 8 7; }
+
+.trendDot.executed { fill: #fff; stroke: #2563eb; stroke-width: 3; }
+.trendDot.pending { fill: #fff; stroke: #8bb5ff; stroke-width: 3; }
+
+.budgetBarList {
+  display: grid;
+  gap: 13px;
+}
+
+.budgetBarRow {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.2fr) minmax(130px, 2fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.budgetBarRow span {
+  font-weight: 900;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.budgetBarRow div {
+  height: 18px;
+  background: #edf2fb;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.budgetBarRow i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #2563eb, #7fc8f8);
+  border-radius: inherit;
+}
+
+.budgetBarRow b,
+.budgetBarRow em {
+  white-space: nowrap;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.budgetBarRow em {
+  color: #667085;
+  font-size: 12px;
+}
+
+.budgetTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.budgetTable th,
+.budgetTable td {
+  padding: 12px 10px;
+  border-bottom: 1px solid rgba(17,17,17,.08);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.budgetTable th {
+  color: #475467;
+  font-size: 11px;
+  text-transform: uppercase;
+  font-weight: 950;
+  background: rgba(17,17,17,.025);
+}
+
+.budgetBadge {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  color: #fff;
+  font-weight: 950;
+}
+
+.budgetBadge.A { background: #9ca3af; }
+.budgetBadge.B { background: #2563eb; }
+.budgetBadge.C { background: #8b5cf6; }
+
+.budgetPct {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 92px;
+}
+
+.budgetPct i {
+  display: block;
+  width: 52px;
+  max-width: 52px;
+  height: 8px;
+  background: #2563eb;
+  border-radius: 999px;
+}
+
+.budgetAlertCard h2 {
+  font-size: 22px;
+  margin-bottom: 6px;
+}
+
+.budgetAlertCard > p {
+  margin-top: 0;
+  margin-bottom: 18px;
+}
+
+.budgetAlertCard > div {
+  display: grid;
+  gap: 12px;
+}
+
+.budgetAlertCard article {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 12px;
+  align-items: center;
+  border-radius: 20px;
+  padding: 16px;
+}
+
+.budgetAlertCard article strong {
+  font-size: 38px;
+  line-height: 1;
+  letter-spacing: -.06em;
+}
+
+.budgetAlertCard article span {
+  font-weight: 900;
+}
+
+.budgetAlertCard .red { background: rgba(255,99,146,.12); color: #b42318; }
+.budgetAlertCard .yellow { background: rgba(255,228,94,.28); color: #8a6100; }
+.budgetAlertCard .blue { background: rgba(90,169,230,.14); color: #175a91; }
+
+.budgetProposalTableWrap {
+  overflow-x: auto;
+}
+
+.budgetTable.proposal td:nth-child(2) {
+  min-width: 280px;
+  font-weight: 850;
+}
+
+.budgetNote {
+  margin: 14px 0 0;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+@media (max-width: 1300px) {
+  .budgetKpiGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .budgetMainGrid,
+  .budgetSecondGrid,
+  .budgetThirdGrid,
+  .budgetFourthGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .budgetFilters,
+  .budgetKpiGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .budgetLock form {
+    grid-template-columns: 1fr;
+  }
+
+  .budgetLock button {
+    padding: 14px 20px;
+  }
+
+  .budgetBarRow {
+    grid-template-columns: 1fr;
   }
 }
 
