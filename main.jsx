@@ -5138,7 +5138,7 @@ function monthKeyFromDate(value) {
 
 function buildBudgetModel(budgetRows, activityRows) {
   const today = toLocalISODate(new Date());
-  const activitiesByProposal = groupBy(activityRows.filter((row) => row.id), "id");
+  const activitiesByProposal = groupBy(activityRows.filter((row) => row.id), (row) => row.id);
 
   const proposals = budgetRows
     .map(normalizeBudgetProposal)
@@ -6062,6 +6062,9 @@ function App() {
         {view === "dashboard" && <DashboardView rows={scopedRows} inscripcions={inscripcions} />}
         {view === "temps" && <TempsCapitalitatView rows={scopedRows} inscripcions={inscripcions} apiSpaces={apiSpaces} />}
         {view === "pressupost" && canSeeView(role, "direccio") && <BudgetView activityRows={rows} />}
+        {view === "pressupost" && !canSeeView(role, "direccio") && (
+          <Top title="Pressupost · Direcció" subtitle="No tens permisos per veure aquesta pestanya." />
+        )}
         {view === "direccio" && canSeeView(role, "direccio") && (
           <DireccioView
             rows={scopedRows}
