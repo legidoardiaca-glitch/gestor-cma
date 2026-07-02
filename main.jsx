@@ -803,7 +803,38 @@ function formatRoleLabel(role) {
 }
 
 
+function getViewExportLabel(view) {
+  const labels = {
+    dashboard: "Dashboard",
+    temps: "Temps de Capitalitat",
+    direccio: "Direccio",
+    pressupost: "Pressupost",
+    activitats: "Activitats",
+    propostes: "Propostes",
+    calendari: "Calendari",
+    espais: "Espais",
+    inscripcions: "Dades inscripcions",
+  };
+
+  return labels[view] || view || "vista";
+}
+
+function makeExportFileName(view) {
+  const label = getViewExportLabel(view)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  const date = new Date().toISOString().slice(0, 10);
+
+  return `gestor-cma-${label}-${date}`;
+}
+
 function Shell({ children, view, setView, rows, status, userName, role, onLogout }) {
+  const contentRef = useRef(null);
+  const [exportingView, setExportingView] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
       return localStorage.getItem("cmaSidebarCollapsed") === "true";
@@ -819,6 +850,69 @@ function Shell({ children, view, setView, rows, status, userName, role, onLogout
       // localStorage pot no estar disponible en algun navegador; no bloquegem la web.
     }
   }, [sidebarCollapsed]);
+
+  async function exportCurrentView(type) {
+    const node = contentRef.current;
+
+    if (!node || exportingView) return;
+
+    setExportingView(true);
+
+    const fileBase = makeExportFileName(view);
+    const exportFilter = (element) => {
+      if (!element || !element.classList) return true;
+      if (element.classList.contains("noExport")) return false;
+      if (element.closest && element.closest(".noExport")) return false;
+      return true;
+    };
+
+    const options = {
+      backgroundColor: "#f7f7f5",
+      pixelRatio: 2,
+      cacheBust: true,
+      filter: exportFilter,
+      width: node.scrollWidth,
+      height: node.scrollHeight,
+      style: {
+        overflow: "visible",
+      },
+    };
+
+    try {
+      if (type === "jpg") {
+        const dataUrl = await toJpeg(node, {
+          ...options,
+          quality: 0.95,
+        });
+
+        downloadDataUrl(dataUrl, `${fileBase}.jpg`);
+      }
+
+      if (type === "png") {
+        const dataUrl = await toPng(node, options);
+        downloadDataUrl(dataUrl, `${fileBase}.png`);
+      }
+
+      if (type === "pdf") {
+        const dataUrl = await toPng(node, options);
+        const width = node.scrollWidth;
+        const height = node.scrollHeight;
+
+        const pdf = new jsPDF({
+          orientation: width >= height ? "landscape" : "portrait",
+          unit: "px",
+          format: [width, height],
+        });
+
+        pdf.addImage(dataUrl, "PNG", 0, 0, width, height);
+        pdf.save(`${fileBase}.pdf`);
+      }
+    } catch (err) {
+      alert(`No s'ha pogut exportar aquesta vista: ${err.message}`);
+    } finally {
+      setExportingView(false);
+    }
+  }
 
   const navItems = getVisibleNavItems(role);
 
@@ -865,7 +959,21 @@ function Shell({ children, view, setView, rows, status, userName, role, onLogout
         </div>
       </aside>
 
-      <section className="content">{children}</section>
+      <section ref={contentRef} className="content contentExportArea">
+        <div className="globalExportControls noExport" aria-label="Exportar vista actual">
+          <span>Exportar vista</span>
+          <button type="button" disabled={exportingView} onClick={() => exportCurrentView("png")}>
+            {exportingView ? "Exportant..." : "PNG"}
+          </button>
+          <button type="button" disabled={exportingView} onClick={() => exportCurrentView("jpg")}>
+            JPG
+          </button>
+          <button type="button" disabled={exportingView} onClick={() => exportCurrentView("pdf")}>
+            PDF
+          </button>
+        </div>
+        {children}
+      </section>
     </main>
   );
 }
@@ -10903,6 +11011,69 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
 
   .budgetBarRow {
     grid-template-columns: 1fr;
+  }
+}
+
+
+/* Exportació global de totes les pantalles */
+.contentExportArea {
+  position: relative;
+}
+
+.globalExportControls {
+  position: sticky;
+  top: 18px;
+  z-index: 60;
+  width: fit-content;
+  margin-left: auto;
+  margin-bottom: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,.88);
+  border: 1px solid rgba(17,17,17,.10);
+  border-radius: 18px;
+  padding: 6px;
+  box-shadow: 0 16px 36px rgba(17,17,17,.08);
+  backdrop-filter: blur(14px);
+}
+
+.globalExportControls span {
+  color: #666;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: 0 8px;
+}
+
+.globalExportControls button {
+  border: 0;
+  background: #111;
+  color: #fff;
+  border-radius: 13px;
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: 950;
+  min-width: 48px;
+}
+
+.globalExportControls button:hover {
+  background: #2b2b2b;
+}
+
+.globalExportControls button:disabled {
+  opacity: .6;
+  cursor: wait;
+}
+
+@media (max-width: 900px) {
+  .globalExportControls {
+    position: static;
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
   }
 }
 
