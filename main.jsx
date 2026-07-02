@@ -3970,12 +3970,26 @@ function TypeDonut({ title, data }) {
     <ChartCard title={title} icon="◔" totalLabel={`Total: ${total} activitats`}>
       <div className="donutCardBody inscriptionsDonutBody">
         <div className="inscriptionsSvgDonutWrap">
-          <svg className="inscriptionsSvgDonut" viewBox="0 0 220 220" aria-hidden="true">
+          <svg
+            className="inscriptionsSvgDonut"
+            viewBox="0 0 220 220"
+            aria-hidden="true"
+            style={{
+              width: 230,
+              height: 230,
+              display: "block",
+              overflow: "visible",
+              transform: "rotate(-90deg)",
+            }}
+          >
             <circle
               className="inscriptionsSvgDonutBase"
               cx="110"
               cy="110"
               r={radius}
+              fill="none"
+              stroke="#edf0f3"
+              strokeWidth="34"
             />
             {chartData.map((item) => {
               const length = (item.value / total) * circumference;
@@ -3990,7 +4004,10 @@ function TypeDonut({ title, data }) {
                   cx="110"
                   cy="110"
                   r={radius}
+                  fill="none"
                   stroke={item.color}
+                  strokeWidth="34"
+                  strokeLinecap="butt"
                   strokeDasharray={dash}
                   strokeDashoffset={strokeDashoffset}
                 />
