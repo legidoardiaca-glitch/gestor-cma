@@ -6288,60 +6288,64 @@ function ParticipacioView({ rows }) {
       </Top>
 
       <div className="participacioFilters">
-        <label>
-          <span>Cerca</span>
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Activitat, espai, ID..." />
-        </label>
+        <div className="participacioFiltersTop">
+          <label className="participacioSearchField">
+            <span>Cerca</span>
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Activitat, espai, ID..." />
+          </label>
 
-        <label>
-          <span>Data inici</span>
-          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-        </label>
+          <label>
+            <span>Data inici</span>
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          </label>
 
-        <label>
-          <span>Data final</span>
-          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-        </label>
+          <label>
+            <span>Data final</span>
+            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          </label>
+        </div>
 
-        <label>
-          <span>Modalitat</span>
-          <select value={modalitatFilter} onChange={(e) => setModalitatFilter(e.target.value)}>
-            <option value="all">Totes</option>
-            {filterOptions.modalitats.map((value) => <option key={value} value={value}>{value}</option>)}
-          </select>
-        </label>
+        <div className="participacioFiltersBottom">
+          <label>
+            <span>Modalitat</span>
+            <select value={modalitatFilter} onChange={(e) => setModalitatFilter(e.target.value)}>
+              <option value="all">Totes</option>
+              {filterOptions.modalitats.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
 
-        <label>
-          <span>Categoria</span>
-          <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-            <option value="all">Totes</option>
-            {filterOptions.categories.map((value) => <option key={value} value={value}>{value}</option>)}
-          </select>
-        </label>
+          <label>
+            <span>Categoria</span>
+            <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+              <option value="all">Totes</option>
+              {filterOptions.categories.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
 
-        <label>
-          <span>Districte</span>
-          <select value={districtFilter} onChange={(e) => setDistrictFilter(e.target.value)}>
-            <option value="all">Tots</option>
-            {filterOptions.districts.map((value) => <option key={value} value={value}>{value}</option>)}
-          </select>
-        </label>
+          <label>
+            <span>Districte</span>
+            <select value={districtFilter} onChange={(e) => setDistrictFilter(e.target.value)}>
+              <option value="all">Tots</option>
+              {filterOptions.districts.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
 
-        <label>
-          <span>Encarregada</span>
-          <select value={managerFilter} onChange={(e) => setManagerFilter(e.target.value)}>
-            <option value="all">Totes</option>
-            {filterOptions.managers.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
-          </select>
-        </label>
+          <label>
+            <span>Encarregada</span>
+            <select value={managerFilter} onChange={(e) => setManagerFilter(e.target.value)}>
+              <option value="all">Totes</option>
+              {filterOptions.managers.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
+            </select>
+          </label>
 
-        <label>
-          <span>Estat</span>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="all">Tots</option>
-            {filterOptions.statuses.map((value) => <option key={value} value={value}>{value}</option>)}
-          </select>
-        </label>
+          <label>
+            <span>Estat</span>
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <option value="all">Tots</option>
+              {filterOptions.statuses.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+        </div>
       </div>
 
       <div className="participacioNote">
@@ -11587,12 +11591,29 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
 
 .participacioFilters {
   display: grid;
-  grid-template-columns: minmax(260px, 2fr) repeat(7, minmax(120px, 1fr));
-  gap: 12px;
+  gap: 14px;
   background: #fff;
   border: 1px solid #e5e5e1;
-  border-radius: 24px;
-  padding: 16px;
+  border-radius: 28px;
+  padding: 18px;
+}
+
+.participacioFiltersTop {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) 190px 190px;
+  gap: 14px;
+  align-items: end;
+}
+
+.participacioFiltersBottom {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(150px, 1fr));
+  gap: 14px;
+  align-items: end;
+}
+
+.participacioSearchField input {
+  min-width: 0;
 }
 
 .participacioFilters label {
@@ -11761,7 +11782,8 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
 }
 
 @media (max-width: 1200px) {
-  .participacioFilters,
+  .participacioFiltersTop,
+  .participacioFiltersBottom,
   .participacioKpis,
   .participacioCharts,
   .participacioColumns {
