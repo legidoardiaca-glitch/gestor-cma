@@ -23,6 +23,9 @@ const INSCRIPCIONS_CSV_URL =
 const ESPAIS_CSV_URL =
   "https://docs.google.com/spreadsheets/d/e/2PACX-1vRWPBpxuBECSh1kLS1Vm-gdmOQhWw6_aBUUsjrX3wMZlaL17IsIkhFrSa8ovmbMR-uFL07SeX5ClGOM/pub?gid=1125496422&single=true&output=csv";
 
+const PARTICIPACIO_CSV_URL =
+  "https://docs.google.com/spreadsheets/d/e/2PACX-1vRWPBpxuBECSh1kLS1Vm-gdmOQhWw6_aBUUsjrX3wMZlaL17IsIkhFrSa8ovmbMR-uFL07SeX5ClGOM/pub?gid=953396512&single=true&output=csv";
+
 const CHART_COLORS = [
   "#5AA9E6",
   "#7FC8F8",
@@ -246,6 +249,18 @@ async function loadEspaisFromCsv() {
 
   if (!response.ok) {
     throw new Error(`Error carregant espais: ${response.status}`);
+  }
+
+  const csvText = await response.text();
+  return parseCsv(csvText);
+}
+
+
+async function loadParticipacioFromCsv() {
+  const response = await fetch(PARTICIPACIO_CSV_URL, { cache: "no-store" });
+
+  if (!response.ok) {
+    throw new Error(`Error carregant participació: ${response.status}`);
   }
 
   const csvText = await response.text();
@@ -744,6 +759,7 @@ function getNavInitial(label) {
     Espais: "E",
     "Dades inscripcions": "I",
     Pressupost: "€",
+    Participació: "Pa",
   };
 
   return special[clean] || clean.slice(0, 2).toUpperCase();
@@ -763,6 +779,7 @@ function getVisibleNavItems(role) {
     ["calendari", "Calendari"],
     ["espais", "Espais"],
     ["inscripcions", "Dades inscripcions"],
+    ["participacio", "Participació"],
   ];
 
   if (normalizedRole === "admin") return allItems;
@@ -814,6 +831,7 @@ function getViewExportLabel(view) {
     calendari: "Calendari",
     espais: "Espais",
     inscripcions: "Dades inscripcions",
+    participacio: "Participació",
   };
 
   return labels[view] || view || "vista";
@@ -6041,6 +6059,424 @@ function BudgetView({ activityRows }) {
 }
 
 
+
+function parseParticipationNumber(value) {
+  if (value === null || value === undefined) return 0;
+
+  const text = String(value)
+    .trim()
+    .replace(/\./g, "")
+    .replace(",", ".")
+    .replace(/[^\d.-]/g, "");
+
+  const number = Number(text);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function formatParticipationNumber(value) {
+  return Math.round(Number(value) || 0).toLocaleString("ca-ES");
+}
+
+function formatParticipationPercent(value) {
+  if (!Number.isFinite(value)) return "—";
+  return `${Math.round(value * 10) / 10}%`;
+}
+
+function normalizeParticipationStatus(value) {
+  const text = normalizeLooseText(value);
+  if (!text) return "Sense dades";
+  if (["si", "yes", "true", "1", "finalitzat", "finalitzada"].includes(text)) return "Finalitzat";
+  if (["no", "false", "0", "pendent", "no finalitzat", "no finalitzada"].includes(text)) return "Pendent";
+  return String(value || "").trim();
+}
+
+function normalizeParticipacioRow(row) {
+  const inscrits = parseParticipationNumber(row.nombre_d_inscrits);
+  const visitants = parseParticipationNumber(row.nombre_de_visitants);
+  const aforament = parseParticipationNumber(row.aformment || row.aforment || row.aforament);
+  const noShow = Math.max(inscrits - visitants, 0);
+
+  return {
+    _row: row._row || "",
+    id: String(row.id || ""),
+    idIntern: String(row.id_intern || ""),
+    idWeb: String(row.id_web || ""),
+    encarregada: getManagerLabel(row.encarregada),
+    managerKey: getManagerKey(row.encarregada),
+    propies: String(row.propies || ""),
+    einaNova: String(row.eina_nova || ""),
+    titol: String(row.titol_activitat_cat || ""),
+    modalitat: String(row.modalitat || ""),
+    modalitatKey: getModalitatKey(row.modalitat),
+    dataInici: normalizeDate(row.data_inici_ || row.data_inici),
+    horaInici: normalizeTime(row.hora_inici),
+    dataFinal: normalizeDate(row.data_final_ || row.data_final),
+    horaFinal: normalizeTime(row.hora_final),
+    categoria: String(row.categoria || ""),
+    espai: String(row.espai_on_es_desenvolupara_l_activitat || ""),
+    districte: String(row.districte || ""),
+    entrada: String(row.entrada || ""),
+    infoInscripcio: String(row.informacio_de_la_inscripcio || ""),
+    enllacInscripcions: String(row.enllac_inscripcions || ""),
+    aforament,
+    inscrits,
+    visitants,
+    noShow,
+    comentaris: String(row.comentaris || ""),
+    assistencia: String(row.assistencia || ""),
+    finalitzat: normalizeParticipationStatus(row.finalitzat),
+  };
+}
+
+function sumParticipation(rows, key) {
+  return rows.reduce((sum, row) => sum + (Number(row[key]) || 0), 0);
+}
+
+function aggregateParticipationBy(rows, keyFn, limit = 12) {
+  const map = new Map();
+
+  rows.forEach((row) => {
+    const key = keyFn(row) || "Sense dades";
+    const previous = map.get(key) || {
+      name: key,
+      activitats: 0,
+      inscrits: 0,
+      visitants: 0,
+      noShow: 0,
+      aforament: 0,
+    };
+
+    previous.activitats += 1;
+    previous.inscrits += row.inscrits || 0;
+    previous.visitants += row.visitants || 0;
+    previous.noShow += row.noShow || 0;
+    previous.aforament += row.aforament || 0;
+
+    map.set(key, previous);
+  });
+
+  return Array.from(map.values())
+    .map((item) => ({
+      ...item,
+      assistenciaRate: item.inscrits > 0 ? (item.visitants / item.inscrits) * 100 : 0,
+      ocupacioRate: item.aforament > 0 ? (item.visitants / item.aforament) * 100 : 0,
+    }))
+    .sort((a, b) => b.visitants - a.visitants)
+    .slice(0, limit);
+}
+
+function ParticipacioView({ rows }) {
+  const [query, setQuery] = useState("");
+  const [modalitatFilter, setModalitatFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [districtFilter, setDistrictFilter] = useState("all");
+  const [managerFilter, setManagerFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+
+  const filterOptions = useMemo(() => ({
+    modalitats: Array.from(new Set(rows.map((row) => row.modalitatKey).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ca")),
+    categories: Array.from(new Set(rows.map((row) => row.categoria).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ca")),
+    districts: Array.from(new Set(rows.map((row) => row.districte).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ca")),
+    managers: Array.from(
+      new Map(rows.map((row) => [row.managerKey, row.encarregada]).filter(([key]) => Boolean(key))).entries()
+    )
+      .map(([key, label]) => ({ key, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, "ca")),
+    statuses: Array.from(new Set(rows.map((row) => row.finalitzat).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ca")),
+  }), [rows]);
+
+  const filteredRows = useMemo(() => {
+    const q = query.toLowerCase().trim();
+
+    return rows.filter((row) => {
+      const text = [
+        row.id,
+        row.idIntern,
+        row.idWeb,
+        row.titol,
+        row.categoria,
+        row.districte,
+        row.espai,
+        row.encarregada,
+        row.modalitat,
+        row.entrada,
+      ].join(" ").toLowerCase();
+
+      return (
+        (!q || text.includes(q)) &&
+        (modalitatFilter === "all" || row.modalitatKey === modalitatFilter) &&
+        (categoryFilter === "all" || row.categoria === categoryFilter) &&
+        (districtFilter === "all" || row.districte === districtFilter) &&
+        (managerFilter === "all" || row.managerKey === managerFilter) &&
+        (statusFilter === "all" || row.finalitzat === statusFilter)
+      );
+    });
+  }, [rows, query, modalitatFilter, categoryFilter, districtFilter, managerFilter, statusFilter]);
+
+  const totals = useMemo(() => {
+    const inscrits = sumParticipation(filteredRows, "inscrits");
+    const visitants = sumParticipation(filteredRows, "visitants");
+    const aforament = sumParticipation(filteredRows, "aforament");
+    const noShow = sumParticipation(filteredRows, "noShow");
+    const activitatsAmbDades = filteredRows.filter((row) => row.inscrits || row.visitants || row.aforament).length;
+
+    return {
+      inscrits,
+      visitants,
+      aforament,
+      noShow,
+      activitats: filteredRows.length,
+      activitatsAmbDades,
+      assistenciaRate: inscrits > 0 ? (visitants / inscrits) * 100 : 0,
+      ocupacioRate: aforament > 0 ? (visitants / aforament) * 100 : 0,
+    };
+  }, [filteredRows]);
+
+  const byModalitat = useMemo(() => aggregateParticipationBy(filteredRows, (row) => row.modalitatKey || row.modalitat, 8), [filteredRows]);
+  const byDistrict = useMemo(() => aggregateParticipationBy(filteredRows, (row) => row.districte, 10), [filteredRows]);
+  const byCategory = useMemo(() => aggregateParticipationBy(filteredRows, (row) => row.categoria, 10), [filteredRows]);
+
+  const byMonth = useMemo(() => {
+    return aggregateParticipationBy(filteredRows, (row) => getMonthKey(row.dataInici), 24)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [filteredRows]);
+
+  const topVisitants = useMemo(() => {
+    return [...filteredRows]
+      .sort((a, b) => (b.visitants || 0) - (a.visitants || 0))
+      .slice(0, 12);
+  }, [filteredRows]);
+
+  const topNoShow = useMemo(() => {
+    return [...filteredRows]
+      .filter((row) => row.noShow > 0)
+      .sort((a, b) => (b.noShow || 0) - (a.noShow || 0))
+      .slice(0, 8);
+  }, [filteredRows]);
+
+  return (
+    <div className="participacioView">
+      <Top
+        title="Participació"
+        subtitle="Lectura d'inscrits, visitants, assistència i ocupació de les activitats de la Capitalitat."
+      >
+        <div className="todayPill">{formatParticipationNumber(rows.length)} files carregades</div>
+      </Top>
+
+      <div className="participacioFilters">
+        <label>
+          <span>Cerca</span>
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Activitat, espai, ID..." />
+        </label>
+
+        <label>
+          <span>Modalitat</span>
+          <select value={modalitatFilter} onChange={(e) => setModalitatFilter(e.target.value)}>
+            <option value="all">Totes</option>
+            {filterOptions.modalitats.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </label>
+
+        <label>
+          <span>Categoria</span>
+          <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+            <option value="all">Totes</option>
+            {filterOptions.categories.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </label>
+
+        <label>
+          <span>Districte</span>
+          <select value={districtFilter} onChange={(e) => setDistrictFilter(e.target.value)}>
+            <option value="all">Tots</option>
+            {filterOptions.districts.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </label>
+
+        <label>
+          <span>Encarregada</span>
+          <select value={managerFilter} onChange={(e) => setManagerFilter(e.target.value)}>
+            <option value="all">Totes</option>
+            {filterOptions.managers.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
+          </select>
+        </label>
+
+        <label>
+          <span>Estat</span>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="all">Tots</option>
+            {filterOptions.statuses.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <div className="participacioKpis">
+        <StatCard label="Inscrits totals" value={formatParticipationNumber(totals.inscrits)} hint="Suma de NOMBRE D'INSCRITS" />
+        <StatCard label="Visitants totals" value={formatParticipationNumber(totals.visitants)} hint="Suma de NOMBRE DE VISITANTS" />
+        <StatCard label="Assistència" value={formatParticipationPercent(totals.assistenciaRate)} hint="Visitants / inscrits" />
+        <StatCard label="No-show estimat" value={formatParticipationNumber(totals.noShow)} hint="Inscrits - visitants" />
+        <StatCard label="Ocupació" value={formatParticipationPercent(totals.ocupacioRate)} hint="Visitants / aforament" />
+        <StatCard label="Activitats amb dades" value={formatParticipationNumber(totals.activitatsAmbDades)} hint={`${formatParticipationNumber(totals.activitats)} activitats filtrades`} />
+      </div>
+
+      <div className="participacioCharts">
+        <ChartCard title="Inscrits vs visitants per modalitat" icon="◩" totalLabel={`${formatParticipationNumber(totals.visitants)} visitants`}>
+          <div className="participacioChartBody">
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={byModalitat} margin={{ top: 18, right: 20, bottom: 18, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="name" tickLine={false} axisLine={false} />
+                <YAxis tickLine={false} axisLine={false} />
+                <Tooltip />
+                <Bar dataKey="inscrits" name="Inscrits" fill="#5AA9E6" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="visitants" name="Visitants" fill="#FFE45E" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </ChartCard>
+
+        <ChartCard title="Visitants per districte" icon="▰" totalLabel="Top districtes">
+          <div className="participacioChartBody">
+            <ResponsiveContainer width="100%" height={340}>
+              <BarChart data={byDistrict} layout="vertical" margin={{ top: 12, right: 28, bottom: 10, left: 118 }}>
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                <XAxis type="number" tickLine={false} axisLine={false} />
+                <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} width={130} />
+                <Tooltip />
+                <Bar dataKey="visitants" name="Visitants" fill="#FF6392" radius={[0, 8, 8, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </ChartCard>
+
+        <ChartCard title="Evolució mensual" icon="⌁" totalLabel="Inscrits / visitants">
+          <div className="participacioChartBody">
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={byMonth} margin={{ top: 18, right: 20, bottom: 18, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="name" tickLine={false} axisLine={false} />
+                <YAxis tickLine={false} axisLine={false} />
+                <Tooltip />
+                <Bar dataKey="inscrits" name="Inscrits" fill="#7FC8F8" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="visitants" name="Visitants" fill="#B9FBC0" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </ChartCard>
+
+        <ChartCard title="Visitants per categoria" icon="◍" totalLabel="Top categories">
+          <div className="participacioChartBody">
+            <ResponsiveContainer width="100%" height={340}>
+              <BarChart data={byCategory} layout="vertical" margin={{ top: 12, right: 28, bottom: 10, left: 130 }}>
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                <XAxis type="number" tickLine={false} axisLine={false} />
+                <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} width={145} />
+                <Tooltip />
+                <Bar dataKey="visitants" name="Visitants" fill="#CDB4DB" radius={[0, 8, 8, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </ChartCard>
+      </div>
+
+      <div className="participacioColumns">
+        <div className="panel participacioPanel">
+          <div className="sectionTitle">
+            <h3>Activitats amb més visitants</h3>
+            <span>Top 12</span>
+          </div>
+          <div className="participacioRanking">
+            {topVisitants.map((row, index) => (
+              <div className="participacioRankingRow" key={`${row.idIntern}-${index}`}>
+                <b>{index + 1}</b>
+                <div>
+                  <strong>{row.titol || "Sense títol"}</strong>
+                  <span>{row.idIntern || row.idWeb || row.id} · {row.districte || "Sense districte"}</span>
+                </div>
+                <em>{formatParticipationNumber(row.visitants)}</em>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel participacioPanel">
+          <div className="sectionTitle">
+            <h3>Més no-show estimat</h3>
+            <span>Inscrits - visitants</span>
+          </div>
+          <div className="participacioRanking">
+            {topNoShow.map((row, index) => (
+              <div className="participacioRankingRow" key={`${row.idIntern}-noshow-${index}`}>
+                <b>{index + 1}</b>
+                <div>
+                  <strong>{row.titol || "Sense títol"}</strong>
+                  <span>{formatParticipationNumber(row.inscrits)} inscrits · {formatParticipationNumber(row.visitants)} visitants</span>
+                </div>
+                <em>{formatParticipationNumber(row.noShow)}</em>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="panel participacioTablePanel">
+        <div className="sectionTitle">
+          <h3>Detall d'activitats</h3>
+          <span>{formatParticipationNumber(filteredRows.length)} files</span>
+        </div>
+
+        <div className="participacioTableWrap">
+          <table className="participacioTable">
+            <thead>
+              <tr>
+                <th>ID intern</th>
+                <th>Activitat</th>
+                <th>Data</th>
+                <th>Modalitat</th>
+                <th>Districte</th>
+                <th>Inscrits</th>
+                <th>Visitants</th>
+                <th>Assist.</th>
+                <th>Ocup.</th>
+                <th>Finalitzat</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredRows.slice(0, 350).map((row, index) => {
+                const assistenciaRate = row.inscrits > 0 ? (row.visitants / row.inscrits) * 100 : 0;
+                const ocupacioRate = row.aforament > 0 ? (row.visitants / row.aforament) * 100 : 0;
+
+                return (
+                  <tr key={`${row.idIntern}-${index}`}>
+                    <td><b>{row.idIntern || row.idWeb || row.id || "—"}</b></td>
+                    <td>
+                      <strong>{row.titol || "Sense títol"}</strong>
+                      <span>{row.espai || "Sense espai"}</span>
+                    </td>
+                    <td>{formatCompactDate(row.dataInici)}</td>
+                    <td>{row.modalitatKey || row.modalitat || "—"}</td>
+                    <td>{row.districte || "—"}</td>
+                    <td>{formatParticipationNumber(row.inscrits)}</td>
+                    <td>{formatParticipationNumber(row.visitants)}</td>
+                    <td>{formatParticipationPercent(assistenciaRate)}</td>
+                    <td>{formatParticipationPercent(ocupacioRate)}</td>
+                    <td>{row.finalitzat || "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {filteredRows.length > 350 && (
+          <p className="participacioTableNote">Es mostren les primeres 350 files filtrades per mantenir la vista àgil.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
 function App() {
   const [authenticated, setAuthenticated] = useState(false);
   const [userName, setUserName] = useState("");
@@ -6048,6 +6484,7 @@ function App() {
   const [rows, setRows] = useState([]);
   const [dataScope, setDataScope] = useState("published");
   const [inscripcions, setInscripcions] = useState([]);
+  const [participacio, setParticipacio] = useState([]);
   const [apiSpaces, setApiSpaces] = useState([]);
   const [selectedActivityId, setSelectedActivityId] = useState("");
   const [view, setView] = useState("dashboard");
@@ -6061,8 +6498,9 @@ function App() {
     Promise.all([
       loadPassisFromIndex(),
       loadInscripcionsFromCsv().catch(() => []),
+      loadParticipacioFromCsv().catch(() => []),
     ])
-      .then(([jsonRows, inscripcionsRowsRaw]) => {
+      .then(([jsonRows, inscripcionsRowsRaw, participacioRowsRaw]) => {
         const passis = jsonRows
           .filter((row) => row.id || row.id_intern || row.titol_activitat || row.titol_activitat_cat)
           .map((row) =>
@@ -6115,8 +6553,13 @@ function App() {
           .filter((row) => row.id || row.id_intern || row.id_web || row.nom || row.cognom)
           .map(normalizeInscripcio);
 
+        const participacioNormalitzada = participacioRowsRaw
+          .filter((row) => row.id || row.id_intern || row.id_web || row.titol_activitat_cat)
+          .map(normalizeParticipacioRow);
+
         setRows(passis);
         setInscripcions(inscripcionsNormalitzades);
+        setParticipacio(participacioNormalitzada);
         setApiSpaces([]);
 
         if (passis[0]) {
@@ -6226,6 +6669,7 @@ function App() {
           />
         )}
         {view === "inscripcions" && <InscripcionsView inscripcions={inscripcions} />}
+        {view === "participacio" && <ParticipacioView rows={participacio} />}
       </Shell>
       <style>{css}</style>
     </>
@@ -11091,6 +11535,183 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
     width: 100%;
     justify-content: flex-end;
     flex-wrap: wrap;
+  }
+}
+
+
+/* Participació */
+.participacioView {
+  display: grid;
+  gap: 22px;
+}
+
+.participacioFilters {
+  display: grid;
+  grid-template-columns: minmax(260px, 2fr) repeat(5, minmax(130px, 1fr));
+  gap: 12px;
+  background: #fff;
+  border: 1px solid #e5e5e1;
+  border-radius: 24px;
+  padding: 16px;
+}
+
+.participacioFilters label {
+  display: grid;
+  gap: 6px;
+}
+
+.participacioFilters span {
+  color: #666;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.participacioFilters input,
+.participacioFilters select {
+  width: 100%;
+  border: 1px solid #ddd;
+  border-radius: 16px;
+  padding: 12px 13px;
+  background: #f7f7f5;
+  font-weight: 700;
+}
+
+.participacioKpis {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.participacioCharts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.participacioChartBody {
+  width: 100%;
+  min-height: 310px;
+}
+
+.participacioColumns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.participacioPanel,
+.participacioTablePanel {
+  background: #fff;
+  border: 1px solid #e6e6e2;
+  border-radius: 28px;
+  padding: 20px;
+}
+
+.participacioRanking {
+  display: grid;
+  gap: 10px;
+}
+
+.participacioRankingRow {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border-radius: 18px;
+  background: #f7f7f5;
+}
+
+.participacioRankingRow b {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #111;
+  color: #fff;
+  font-size: 12px;
+}
+
+.participacioRankingRow strong {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.participacioRankingRow span {
+  display: block;
+  margin-top: 3px;
+  color: #666;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.participacioRankingRow em {
+  font-style: normal;
+  font-size: 22px;
+  font-weight: 950;
+  letter-spacing: -0.04em;
+}
+
+.participacioTableWrap {
+  overflow: auto;
+  max-height: 720px;
+}
+
+.participacioTable {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 1080px;
+}
+
+.participacioTable th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #111;
+  color: #fff;
+  text-align: left;
+  padding: 12px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.participacioTable td {
+  border-bottom: 1px solid #ecece8;
+  padding: 12px;
+  vertical-align: top;
+  font-size: 13px;
+}
+
+.participacioTable td strong {
+  display: block;
+  max-width: 380px;
+}
+
+.participacioTable td span {
+  display: block;
+  margin-top: 4px;
+  color: #666;
+  font-size: 12px;
+}
+
+.participacioTableNote {
+  color: #666;
+  font-size: 13px;
+  margin: 12px 0 0;
+}
+
+@media (max-width: 1200px) {
+  .participacioFilters,
+  .participacioKpis,
+  .participacioCharts,
+  .participacioColumns {
+    grid-template-columns: 1fr;
   }
 }
 
