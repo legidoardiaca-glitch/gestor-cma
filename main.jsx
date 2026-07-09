@@ -3569,10 +3569,12 @@ function DashboardView({ rows, inscripcions = [] }) {
 
   const filteredRows = useMemo(() => {
     return rows.filter((row) => {
-      const validDate = isValidDateString(row.dataInici);
+      const activityStart = isValidDateString(row.dataInici) ? row.dataInici : "";
+      const activityEnd = isValidDateString(row.dataFinal) ? row.dataFinal : activityStart;
+
       const inDateRange =
-        !validDate ||
-        ((!startDate || row.dataInici >= startDate) && (!endDate || row.dataInici <= endDate));
+        (!activityStart && !activityEnd) ||
+        ((!startDate || activityEnd >= startDate) && (!endDate || activityStart <= endDate));
 
       const matchesMonth = monthFilter === "all" || getMonthKey(row.dataInici) === monthFilter;
       const matchesCategory = categoryFilter === "all" || row.categoria === categoryFilter;
@@ -6060,6 +6062,7 @@ function BudgetView({ activityRows }) {
 
 
 
+
 function parseParticipationNumber(value) {
   if (value === null || value === undefined) return 0;
 
@@ -6090,11 +6093,17 @@ function normalizeParticipationStatus(value) {
   return String(value || "").trim();
 }
 
+function isParticipationChecked(value) {
+  const text = normalizeLooseText(value);
+  return value === true || ["si", "yes", "true", "1", "x", "check", "checked", "ok"].includes(text);
+}
+
 function normalizeParticipacioRow(row) {
   const inscrits = parseParticipationNumber(row.nombre_d_inscrits);
   const visitants = parseParticipationNumber(row.nombre_de_visitants);
   const aforament = parseParticipationNumber(row.aformment || row.aforment || row.aforament);
-  const noShow = Math.max(inscrits - visitants, 0);
+  const propiesChecked = isParticipationChecked(row.propies);
+  const einaNovaChecked = isParticipationChecked(row.eina_nova);
 
   return {
     _row: row._row || "",
@@ -6104,7 +6113,10 @@ function normalizeParticipacioRow(row) {
     encarregada: getManagerLabel(row.encarregada),
     managerKey: getManagerKey(row.encarregada),
     propies: String(row.propies || ""),
+    propiesChecked,
     einaNova: String(row.eina_nova || ""),
+    einaNovaChecked,
+    teInscripcions: propiesChecked || einaNovaChecked,
     titol: String(row.titol_activitat_cat || ""),
     modalitat: String(row.modalitat || ""),
     modalitatKey: getModalitatKey(row.modalitat),
@@ -6121,7 +6133,6 @@ function normalizeParticipacioRow(row) {
     aforament,
     inscrits,
     visitants,
-    noShow,
     comentaris: String(row.comentaris || ""),
     assistencia: String(row.assistencia || ""),
     finalitzat: normalizeParticipationStatus(row.finalitzat),
@@ -6142,14 +6153,12 @@ function aggregateParticipationBy(rows, keyFn, limit = 12) {
       activitats: 0,
       inscrits: 0,
       visitants: 0,
-      noShow: 0,
       aforament: 0,
     };
 
     previous.activitats += 1;
     previous.inscrits += row.inscrits || 0;
     previous.visitants += row.visitants || 0;
-    previous.noShow += row.noShow || 0;
     previous.aforament += row.aforament || 0;
 
     map.set(key, previous);
@@ -6159,14 +6168,16 @@ function aggregateParticipationBy(rows, keyFn, limit = 12) {
     .map((item) => ({
       ...item,
       assistenciaRate: item.inscrits > 0 ? (item.visitants / item.inscrits) * 100 : 0,
-      ocupacioRate: item.aforament > 0 ? (item.visitants / item.aforament) * 100 : 0,
     }))
     .sort((a, b) => b.visitants - a.visitants)
     .slice(0, limit);
 }
 
 function ParticipacioView({ rows }) {
+  const initialRange = getDateRange(rows.map((row) => ({ dataInici: row.dataInici })));
   const [query, setQuery] = useState("");
+  const [startDate, setStartDate] = useState(initialRange.start && initialRange.start !== "—" ? initialRange.start : "");
+  const [endDate, setEndDate] = useState(initialRange.end && initialRange.end !== "—" ? initialRange.end : "");
   const [modalitatFilter, setModalitatFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [districtFilter, setDistrictFilter] = useState("all");
@@ -6202,7 +6213,13 @@ function ParticipacioView({ rows }) {
         row.entrada,
       ].join(" ").toLowerCase();
 
+      const validDate = isValidDateString(row.dataInici);
+      const inDateRange =
+        !validDate ||
+        ((!startDate || row.dataInici >= startDate) && (!endDate || row.dataInici <= endDate));
+
       return (
+        inDateRange &&
         (!q || text.includes(q)) &&
         (modalitatFilter === "all" || row.modalitatKey === modalitatFilter) &&
         (categoryFilter === "all" || row.categoria === categoryFilter) &&
@@ -6211,26 +6228,29 @@ function ParticipacioView({ rows }) {
         (statusFilter === "all" || row.finalitzat === statusFilter)
       );
     });
-  }, [rows, query, modalitatFilter, categoryFilter, districtFilter, managerFilter, statusFilter]);
+  }, [rows, query, startDate, endDate, modalitatFilter, categoryFilter, districtFilter, managerFilter, statusFilter]);
+
+  const inscriptionRows = useMemo(() => {
+    return filteredRows.filter((row) => row.teInscripcions);
+  }, [filteredRows]);
 
   const totals = useMemo(() => {
-    const inscrits = sumParticipation(filteredRows, "inscrits");
-    const visitants = sumParticipation(filteredRows, "visitants");
-    const aforament = sumParticipation(filteredRows, "aforament");
-    const noShow = sumParticipation(filteredRows, "noShow");
+    const inscrits = sumParticipation(inscriptionRows, "inscrits");
+    const visitantsAmbInscripcio = sumParticipation(inscriptionRows, "visitants");
+    const visitantsTotals = sumParticipation(filteredRows, "visitants");
     const activitatsAmbDades = filteredRows.filter((row) => row.inscrits || row.visitants || row.aforament).length;
+    const activitatsAmbInscripcio = inscriptionRows.length;
 
     return {
       inscrits,
-      visitants,
-      aforament,
-      noShow,
+      visitantsAmbInscripcio,
+      visitantsTotals,
       activitats: filteredRows.length,
       activitatsAmbDades,
-      assistenciaRate: inscrits > 0 ? (visitants / inscrits) * 100 : 0,
-      ocupacioRate: aforament > 0 ? (visitants / aforament) * 100 : 0,
+      activitatsAmbInscripcio,
+      assistenciaRate: inscrits > 0 ? (visitantsAmbInscripcio / inscrits) * 100 : 0,
     };
-  }, [filteredRows]);
+  }, [filteredRows, inscriptionRows]);
 
   const byModalitat = useMemo(() => aggregateParticipationBy(filteredRows, (row) => row.modalitatKey || row.modalitat, 8), [filteredRows]);
   const byDistrict = useMemo(() => aggregateParticipationBy(filteredRows, (row) => row.districte, 10), [filteredRows]);
@@ -6247,18 +6267,22 @@ function ParticipacioView({ rows }) {
       .slice(0, 12);
   }, [filteredRows]);
 
-  const topNoShow = useMemo(() => {
-    return [...filteredRows]
-      .filter((row) => row.noShow > 0)
-      .sort((a, b) => (b.noShow || 0) - (a.noShow || 0))
+  const topAssistencia = useMemo(() => {
+    return [...inscriptionRows]
+      .filter((row) => row.inscrits > 0)
+      .map((row) => ({
+        ...row,
+        assistenciaRate: (row.visitants / row.inscrits) * 100,
+      }))
+      .sort((a, b) => b.assistenciaRate - a.assistenciaRate)
       .slice(0, 8);
-  }, [filteredRows]);
+  }, [inscriptionRows]);
 
   return (
     <div className="participacioView">
       <Top
         title="Participació"
-        subtitle="Lectura d'inscrits, visitants, assistència i ocupació de les activitats de la Capitalitat."
+        subtitle="Lectura d'inscrits, visitants i assistència de les activitats de la Capitalitat."
       >
         <div className="todayPill">{formatParticipationNumber(rows.length)} files carregades</div>
       </Top>
@@ -6267,6 +6291,16 @@ function ParticipacioView({ rows }) {
         <label>
           <span>Cerca</span>
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Activitat, espai, ID..." />
+        </label>
+
+        <label>
+          <span>Data inici</span>
+          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        </label>
+
+        <label>
+          <span>Data final</span>
+          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
         </label>
 
         <label>
@@ -6310,17 +6344,20 @@ function ParticipacioView({ rows }) {
         </label>
       </div>
 
+      <div className="participacioNote">
+        <strong>Assistència:</strong> aquest percentatge només es calcula amb activitats marcades a <b>PRÒPIES</b> o <b>EINA NOVA</b>, perquè són les que tenen inscripcions.
+      </div>
+
       <div className="participacioKpis">
-        <StatCard label="Inscrits totals" value={formatParticipationNumber(totals.inscrits)} hint="Suma de NOMBRE D'INSCRITS" />
-        <StatCard label="Visitants totals" value={formatParticipationNumber(totals.visitants)} hint="Suma de NOMBRE DE VISITANTS" />
-        <StatCard label="Assistència" value={formatParticipationPercent(totals.assistenciaRate)} hint="Visitants / inscrits" />
-        <StatCard label="No-show estimat" value={formatParticipationNumber(totals.noShow)} hint="Inscrits - visitants" />
-        <StatCard label="Ocupació" value={formatParticipationPercent(totals.ocupacioRate)} hint="Visitants / aforament" />
+        <StatCard label="Inscrits totals" value={formatParticipationNumber(totals.inscrits)} hint="Només PRÒPIES / EINA NOVA" />
+        <StatCard label="Visitants totals" value={formatParticipationNumber(totals.visitantsTotals)} hint="Totes les activitats filtrades" />
+        <StatCard label="Assistència" value={formatParticipationPercent(totals.assistenciaRate)} hint="Visitants / inscrits, només activitats amb inscripció" />
+        <StatCard label="Activitats amb inscripció" value={formatParticipationNumber(totals.activitatsAmbInscripcio)} hint="Check a PRÒPIES o EINA NOVA" />
         <StatCard label="Activitats amb dades" value={formatParticipationNumber(totals.activitatsAmbDades)} hint={`${formatParticipationNumber(totals.activitats)} activitats filtrades`} />
       </div>
 
       <div className="participacioCharts">
-        <ChartCard title="Inscrits vs visitants per modalitat" icon="◩" totalLabel={`${formatParticipationNumber(totals.visitants)} visitants`}>
+        <ChartCard title="Inscrits vs visitants per modalitat" icon="◩" totalLabel={`${formatParticipationNumber(totals.visitantsTotals)} visitants`}>
           <div className="participacioChartBody">
             <ResponsiveContainer width="100%" height={320}>
               <BarChart data={byModalitat} margin={{ top: 18, right: 20, bottom: 18, left: 0 }}>
@@ -6401,18 +6438,18 @@ function ParticipacioView({ rows }) {
 
         <div className="panel participacioPanel">
           <div className="sectionTitle">
-            <h3>Més no-show estimat</h3>
-            <span>Inscrits - visitants</span>
+            <h3>Millor assistència</h3>
+            <span>Només activitats amb inscripció</span>
           </div>
           <div className="participacioRanking">
-            {topNoShow.map((row, index) => (
-              <div className="participacioRankingRow" key={`${row.idIntern}-noshow-${index}`}>
+            {topAssistencia.map((row, index) => (
+              <div className="participacioRankingRow" key={`${row.idIntern}-assistencia-${index}`}>
                 <b>{index + 1}</b>
                 <div>
                   <strong>{row.titol || "Sense títol"}</strong>
-                  <span>{formatParticipationNumber(row.inscrits)} inscrits · {formatParticipationNumber(row.visitants)} visitants</span>
+                  <span>{formatParticipationNumber(row.visitants)} visitants / {formatParticipationNumber(row.inscrits)} inscrits</span>
                 </div>
-                <em>{formatParticipationNumber(row.noShow)}</em>
+                <em>{formatParticipationPercent(row.assistenciaRate)}</em>
               </div>
             ))}
           </div>
@@ -6434,17 +6471,20 @@ function ParticipacioView({ rows }) {
                 <th>Data</th>
                 <th>Modalitat</th>
                 <th>Districte</th>
+                <th>Tipus inscripció</th>
                 <th>Inscrits</th>
                 <th>Visitants</th>
                 <th>Assist.</th>
-                <th>Ocup.</th>
                 <th>Finalitzat</th>
               </tr>
             </thead>
             <tbody>
               {filteredRows.slice(0, 350).map((row, index) => {
-                const assistenciaRate = row.inscrits > 0 ? (row.visitants / row.inscrits) * 100 : 0;
-                const ocupacioRate = row.aforament > 0 ? (row.visitants / row.aforament) * 100 : 0;
+                const assistenciaRate = row.teInscripcions && row.inscrits > 0 ? (row.visitants / row.inscrits) * 100 : null;
+                const tipusInscripcio = [
+                  row.propiesChecked ? "PRÒPIES" : "",
+                  row.einaNovaChecked ? "EINA NOVA" : "",
+                ].filter(Boolean).join(" + ") || "Sense inscripció";
 
                 return (
                   <tr key={`${row.idIntern}-${index}`}>
@@ -6456,10 +6496,10 @@ function ParticipacioView({ rows }) {
                     <td>{formatCompactDate(row.dataInici)}</td>
                     <td>{row.modalitatKey || row.modalitat || "—"}</td>
                     <td>{row.districte || "—"}</td>
+                    <td>{tipusInscripcio}</td>
                     <td>{formatParticipationNumber(row.inscrits)}</td>
                     <td>{formatParticipationNumber(row.visitants)}</td>
-                    <td>{formatParticipationPercent(assistenciaRate)}</td>
-                    <td>{formatParticipationPercent(ocupacioRate)}</td>
+                    <td>{assistenciaRate === null ? "—" : formatParticipationPercent(assistenciaRate)}</td>
                     <td>{row.finalitzat || "—"}</td>
                   </tr>
                 );
@@ -11547,7 +11587,7 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
 
 .participacioFilters {
   display: grid;
-  grid-template-columns: minmax(260px, 2fr) repeat(5, minmax(130px, 1fr));
+  grid-template-columns: minmax(260px, 2fr) repeat(7, minmax(120px, 1fr));
   gap: 12px;
   background: #fff;
   border: 1px solid #e5e5e1;
@@ -11580,8 +11620,22 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
 
 .participacioKpis {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 14px;
+}
+
+.participacioNote {
+  background: #fff8d9;
+  border: 1px solid rgba(255, 228, 94, .75);
+  border-radius: 20px;
+  padding: 14px 16px;
+  color: #4a3b00;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.participacioNote b {
+  font-weight: 950;
 }
 
 .participacioCharts {
