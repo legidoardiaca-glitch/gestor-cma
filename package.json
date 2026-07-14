@@ -5,16 +5,16 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.110.4",
+    "@vercel/analytics": "latest",
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
+    "html-to-image": "latest",
+    "jspdf": "latest",
+    "leaflet": "^1.9.4",
+    "leaflet.markercluster": "^1.5.3",
     "react": "latest",
     "react-dom": "latest",
     "recharts": "latest",
-    "html-to-image": "latest",
-    "jspdf": "latest",
-    "@vercel/analytics": "latest",
-    "leaflet": "^1.9.4",
-    "leaflet.markercluster": "^1.5.3"
-  },
-  "devDependencies": {}
+    "vite": "latest"
+  }
 }

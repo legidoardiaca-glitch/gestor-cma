@@ -14,6 +14,7 @@ import {
 import { toJpeg, toPng } from "html-to-image";
 import jsPDF from "jspdf";
 import { createRoot } from "react-dom/client";
+import { createClient } from "@supabase/supabase-js";
 
 const DATA_URL = "/api/data";
 
@@ -38,6 +39,16 @@ const CHART_COLORS = [
   "#FDFFB6",
   "#BDE0FE",
 ];
+
+
+const CLIPPING_SUPABASE_URL = import.meta.env.VITE_CLIPPING_SUPABASE_URL;
+const CLIPPING_SUPABASE_KEY = import.meta.env.VITE_CLIPPING_SUPABASE_KEY;
+const CLIPPING_APP_URL = import.meta.env.VITE_CLIPPING_APP_URL || "https://clipping-capitalitat.vercel.app";
+
+const clippingSupabase =
+  CLIPPING_SUPABASE_URL && CLIPPING_SUPABASE_KEY
+    ? createClient(CLIPPING_SUPABASE_URL, CLIPPING_SUPABASE_KEY)
+    : null;
 
 function downloadDataUrl(dataUrl, fileName) {
   const link = document.createElement("a");
@@ -759,6 +770,7 @@ function getNavInitial(label) {
     Espais: "E",
     "Dades inscripcions": "I",
     Pressupost: "€",
+    "Clipping / Premsa": "Pr",
     Participació: "Pa",
   };
 
@@ -774,6 +786,7 @@ function getVisibleNavItems(role) {
     ["temps", "Temps de Capitalitat"],
     ["direccio", "Direcció"],
     ["pressupost", "Pressupost"],
+    ["clipping", "Clipping / Premsa"],
     ["activitats", "Activitats"],
     ["propostes", "Propostes"],
     ["calendari", "Calendari"],
@@ -789,14 +802,14 @@ function getVisibleNavItems(role) {
   }
 
   if (normalizedRole === "editor") {
-    return allItems.filter(([id]) => ["activitats", "propostes", "calendari", "espais", "temps"].includes(id));
+    return allItems.filter(([id]) => ["activitats", "propostes", "calendari", "espais", "temps", "clipping"].includes(id));
   }
 
   if (normalizedRole === "cap_projecte") {
-    return allItems.filter(([id]) => ["activitats", "propostes", "calendari", "espais", "temps"].includes(id));
+    return allItems.filter(([id]) => ["activitats", "propostes", "calendari", "espais", "temps", "clipping"].includes(id));
   }
 
-  return allItems.filter(([id]) => ["activitats", "calendari", "espais", "temps"].includes(id));
+  return allItems.filter(([id]) => ["activitats", "calendari", "espais", "temps", "clipping"].includes(id));
 }
 
 function getDefaultViewForRole(role) {
@@ -4499,6 +4512,213 @@ function InscripcionsView({ inscripcions }) {
 }
 
 
+
+function normalizeClippingStatus(value) {
+  const text = String(value || "pendent").toLowerCase();
+
+  if (text.includes("valid")) return "validat";
+  if (text.includes("descart")) return "descartat";
+  if (text.includes("revis")) return "revisat";
+  return "pendent";
+}
+
+async function fetchAllClippingRows(table, select) {
+  if (!clippingSupabase) {
+    throw new Error("Falten les variables VITE_CLIPPING_SUPABASE_URL i VITE_CLIPPING_SUPABASE_KEY.");
+  }
+
+  const pageSize = 1000;
+  let from = 0;
+  const allRows = [];
+
+  while (true) {
+    const to = from + pageSize - 1;
+
+    const { data, error } = await clippingSupabase
+      .from(table)
+      .select(select)
+      .order("created_at", { ascending: false })
+      .range(from, to);
+
+    if (error) throw error;
+
+    allRows.push(...(data || []));
+
+    if (!data || data.length < pageSize) break;
+
+    from += pageSize;
+  }
+
+  return allRows;
+}
+
+function buildClippingSummary(reculls, impacts) {
+  const statusCounts = impacts.reduce((acc, impact) => {
+    const status = normalizeClippingStatus(impact.status);
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, {});
+
+  const mediaTypeCounts = impacts.reduce((acc, impact) => {
+    const key = impact.media_type || "Pendent de classificar";
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+
+  const mediaNameCounts = impacts.reduce((acc, impact) => {
+    const key = impact.media_name || "Pendent de revisar";
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+
+  return {
+    totalReculls: reculls.length,
+    totalImpacts: impacts.length,
+    pending: statusCounts.pendent || 0,
+    validats: statusCounts.validat || 0,
+    revisats: statusCounts.revisat || 0,
+    descartats: statusCounts.descartat || 0,
+    statusCounts,
+    mediaTypeCounts,
+    mediaNameCounts,
+    latestReculls: reculls.slice(0, 6),
+    latestImpacts: impacts.slice(0, 10),
+  };
+}
+
+function ClippingPremsaView() {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [reculls, setReculls] = useState([]);
+  const [impacts, setImpacts] = useState([]);
+
+  async function loadClippingData() {
+    setLoading(true);
+    setError("");
+
+    try {
+      const [nextReculls, nextImpacts] = await Promise.all([
+        fetchAllClippingRows(
+          "press_reculls",
+          "id, title, total_pages, status, created_at, pdf_file_url"
+        ),
+        fetchAllClippingRows(
+          "press_impacts",
+          "id, recull_id, title, media_type, media_name, status, published_at, page_image_url, created_at, importance"
+        ),
+      ]);
+
+      setReculls(nextReculls);
+      setImpacts(nextImpacts);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "No s'han pogut carregar les dades del clipping.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadClippingData();
+  }, []);
+
+  const summary = useMemo(() => buildClippingSummary(reculls, impacts), [reculls, impacts]);
+
+  return (
+    <>
+      <Top
+        title="Clipping / Premsa"
+        subtitle="Seguiment dels reculls i impactes de premsa importats a la plataforma de clipping."
+      >
+        <div className="dashboardTopControls">
+          <a className="externalLink" href={CLIPPING_APP_URL} target="_blank" rel="noreferrer">
+            Obrir clipping complet →
+          </a>
+          <button type="button" onClick={loadClippingData}>
+            Actualitzar
+          </button>
+        </div>
+      </Top>
+
+      {error && <div className="notice">⚠ {error}</div>}
+
+      {loading ? (
+        <div className="notice">Carregant dades del clipping...</div>
+      ) : (
+        <>
+          <div className="stats dashboardStats">
+            <KpiCard icon="PDF" tone="blue" label="Reculls" value={summary.totalReculls} />
+            <KpiCard icon="📰" tone="green" label="Impactes" value={summary.totalImpacts} />
+            <KpiCard icon="⏳" tone="yellow" label="Pendents" value={summary.pending} />
+            <KpiCard icon="✓" tone="purple" label="Validats" value={summary.validats} />
+            <KpiCard icon="×" tone="peach" label="Descartats" value={summary.descartats} />
+          </div>
+
+          <div className="dashboardChartsGrid">
+            <TypeDonut title="Estat dels impactes" data={summary.statusCounts} />
+            <TypeDonut title="Tipus de mitjà" data={summary.mediaTypeCounts} />
+            <CompactRankList title="Mitjans amb més impactes" data={summary.mediaNameCounts} icon="🗞" totalLabel="Top mitjans" />
+
+            <section className="chartCard">
+              <div className="chartCardHeader">
+                <div className="chartTitle">
+                  <span>PDF</span>
+                  <h2>Últims reculls importats</h2>
+                </div>
+                <span className="chartTotal">{summary.latestReculls.length} reculls</span>
+              </div>
+
+              <div className="miniRows">
+                {summary.latestReculls.map((recull) => (
+                  <span key={recull.id}>
+                    <strong>{recull.title || "Recull sense títol"}</strong>
+                    {" · "}
+                    {recull.total_pages || "—"} pàgines
+                    {" · "}
+                    {formatCompactDate(String(recull.created_at || "").slice(0, 10))}
+                  </span>
+                ))}
+
+                {!summary.latestReculls.length && (
+                  <div className="notice">Encara no hi ha reculls importats.</div>
+                )}
+              </div>
+            </section>
+          </div>
+
+          <section className="chartCard">
+            <div className="chartCardHeader">
+              <div className="chartTitle">
+                <span>▤</span>
+                <h2>Últims impactes detectats</h2>
+              </div>
+              <span className="chartTotal">{summary.latestImpacts.length} impactes</span>
+            </div>
+
+            <div className="miniRows">
+              {summary.latestImpacts.map((impact) => (
+                <span key={impact.id}>
+                  <strong>{impact.title || "Impacte pendent de titular"}</strong>
+                  {" · "}
+                  {normalizeClippingStatus(impact.status)}
+                  {" · "}
+                  {impact.media_name || "Pendent de revisar"}
+                </span>
+              ))}
+
+              {!summary.latestImpacts.length && (
+                <div className="notice">Encara no hi ha impactes importats.</div>
+              )}
+            </div>
+          </section>
+        </>
+      )}
+    </>
+  );
+}
+
+
+
 function LoginScreen({ userName, setUserName, role, setRole, onEnter }) {
   return (
     <div className="loginScreen">
@@ -4520,6 +4740,7 @@ function LoginScreen({ userName, setUserName, role, setRole, onEnter }) {
           {[
             ["direccio", "Direcció"],
     ["pressupost", "Pressupost"],
+    ["clipping", "Clipping / Premsa"],
             ["editor", "Editor/a"],
             ["cap_projecte", "Cap projecte"],
             ["admin", "Admin"],
@@ -6672,6 +6893,7 @@ function App() {
           <DataScopeControl dataScope={dataScope} setDataScope={setDataScope} rows={rows} />
         )}
         {view === "dashboard" && <DashboardView rows={scopedRows} inscripcions={inscripcions} />}
+        {view === "clipping" && <ClippingPremsaView />}
         {view === "temps" && <TempsCapitalitatView rows={scopedRows} inscripcions={inscripcions} apiSpaces={apiSpaces} />}
         {view === "pressupost" && canSeeView(role, "direccio") && <BudgetView activityRows={rows} />}
         {view === "pressupost" && !canSeeView(role, "direccio") && (
