@@ -6105,6 +6105,7 @@ function normalizeParticipacioRow(row) {
   const inscrits = parseParticipationNumber(inscritsRaw);
   const visitants = parseParticipationNumber(visitantsRaw);
   const aforament = parseParticipationNumber(aforamentRaw);
+  const hasInscritsData = String(inscritsRaw ?? "").trim() !== "";
   const hasVisitantsData = String(visitantsRaw ?? "").trim() !== "";
   const hasAforamentData = String(aforamentRaw ?? "").trim() !== "";
   const propiesChecked = isParticipationChecked(row.propies);
@@ -6138,6 +6139,7 @@ function normalizeParticipacioRow(row) {
     aforament,
     inscrits,
     visitants,
+    hasInscritsData,
     hasVisitantsData,
     hasAforamentData,
     comentaris: String(row.comentaris || ""),
@@ -6243,16 +6245,24 @@ function ParticipacioView({ rows }) {
 
   const totals = useMemo(() => {
     const occupancyRows = inscriptionRows.filter((row) => row.hasAforamentData && row.hasVisitantsData);
+    const absentismeRows = inscriptionRows.filter((row) => row.hasInscritsData && row.hasVisitantsData);
     const inscrits = sumParticipation(inscriptionRows, "inscrits");
+    const inscritsAmbVisitants = sumParticipation(absentismeRows, "inscrits");
+    const visitantsAmbInscrits = sumParticipation(absentismeRows, "visitants");
+    const absents = Math.max(inscritsAmbVisitants - visitantsAmbInscrits, 0);
     const aforamentAmbDades = sumParticipation(occupancyRows, "aforament");
     const visitantsAmbAforament = sumParticipation(occupancyRows, "visitants");
     const visitantsTotals = sumParticipation(filteredRows, "visitants");
     const activitatsAmbDades = filteredRows.filter((row) => row.inscrits || row.visitants || row.aforament).length;
     const activitatsAmbInscripcio = inscriptionRows.length;
     const activitatsAmbOcupacio = occupancyRows.length;
+    const activitatsAmbAbsentisme = absentismeRows.length;
 
     return {
       inscrits,
+      inscritsAmbVisitants,
+      visitantsAmbInscrits,
+      absents,
       aforamentAmbDades,
       visitantsAmbAforament,
       visitantsTotals,
@@ -6260,7 +6270,9 @@ function ParticipacioView({ rows }) {
       activitatsAmbDades,
       activitatsAmbInscripcio,
       activitatsAmbOcupacio,
+      activitatsAmbAbsentisme,
       ocupacioRate: aforamentAmbDades > 0 ? (visitantsAmbAforament / aforamentAmbDades) * 100 : 0,
+      absentismeRate: inscritsAmbVisitants > 0 ? (absents / inscritsAmbVisitants) * 100 : 0,
     };
   }, [filteredRows, inscriptionRows]);
 
@@ -6361,13 +6373,14 @@ function ParticipacioView({ rows }) {
       </div>
 
       <div className="participacioNote">
-        <strong>Ocupació:</strong> aquest percentatge només es calcula amb activitats marcades a <b>PRÒPIES</b> o <b>EINA NOVA</b> i que tenen informats tant <b>AFORAMENT</b> com <b>NOMBRE DE VISITANTS</b>.
+        <strong>Ocupació:</strong> només amb activitats marcades a <b>PRÒPIES</b> o <b>EINA NOVA</b> i amb <b>AFORAMENT</b> + <b>NOMBRE DE VISITANTS</b>. <strong>Absentisme:</strong> només amb activitats marcades a <b>PRÒPIES</b> o <b>EINA NOVA</b> i amb <b>NOMBRE D'INSCRITS</b> + <b>NOMBRE DE VISITANTS</b>.
       </div>
 
       <div className="participacioKpis">
         <StatCard label="Inscrits totals" value={formatParticipationNumber(totals.inscrits)} hint="Només PRÒPIES / EINA NOVA" />
         <StatCard label="Visitants totals" value={formatParticipationNumber(totals.visitantsTotals)} hint="Totes les activitats filtrades" />
         <StatCard label="Ocupació" value={formatParticipationPercent(totals.ocupacioRate)} hint="Visitants / aforament, només activitats amb dades completes" />
+        <StatCard label="Absentisme" value={formatParticipationPercent(totals.absentismeRate)} hint="Absents / inscrits, només activitats amb inscrits i visitants" />
         <StatCard label="Activitats amb inscripció" value={formatParticipationNumber(totals.activitatsAmbInscripcio)} hint="Check a PRÒPIES o EINA NOVA" />
         <StatCard label="Activitats amb ocupació" value={formatParticipationNumber(totals.activitatsAmbOcupacio)} hint={`${formatParticipationNumber(totals.activitats)} activitats filtrades`} />
       </div>
@@ -11655,7 +11668,7 @@ body, button, input, select, textarea { font-family: Montserrat, Arial, sans-ser
 
 .participacioKpis {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 14px;
 }
 
