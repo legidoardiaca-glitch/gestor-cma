@@ -14,7 +14,6 @@ import {
 import { toJpeg, toPng } from "html-to-image";
 import jsPDF from "jspdf";
 import { createRoot } from "react-dom/client";
-import { createClient } from "@supabase/supabase-js";
 
 const DATA_URL = "/api/data";
 
@@ -39,16 +38,6 @@ const CHART_COLORS = [
   "#FDFFB6",
   "#BDE0FE",
 ];
-
-
-const CLIPPING_SUPABASE_URL = import.meta.env.VITE_CLIPPING_SUPABASE_URL;
-const CLIPPING_SUPABASE_KEY = import.meta.env.VITE_CLIPPING_SUPABASE_KEY;
-const CLIPPING_APP_URL = import.meta.env.VITE_CLIPPING_APP_URL || "https://clipping-capitalitat.vercel.app";
-
-const clippingSupabase =
-  CLIPPING_SUPABASE_URL && CLIPPING_SUPABASE_KEY
-    ? createClient(CLIPPING_SUPABASE_URL, CLIPPING_SUPABASE_KEY)
-    : null;
 
 function downloadDataUrl(dataUrl, fileName) {
   const link = document.createElement("a");
@@ -770,7 +759,6 @@ function getNavInitial(label) {
     Espais: "E",
     "Dades inscripcions": "I",
     Pressupost: "€",
-    "Clipping / Premsa": "Pr",
     Participació: "Pa",
   };
 
@@ -786,7 +774,6 @@ function getVisibleNavItems(role) {
     ["temps", "Temps de Capitalitat"],
     ["direccio", "Direcció"],
     ["pressupost", "Pressupost"],
-    ["clipping", "Clipping / Premsa"],
     ["activitats", "Activitats"],
     ["propostes", "Propostes"],
     ["calendari", "Calendari"],
@@ -802,14 +789,14 @@ function getVisibleNavItems(role) {
   }
 
   if (normalizedRole === "editor") {
-    return allItems.filter(([id]) => ["activitats", "propostes", "calendari", "espais", "temps", "clipping"].includes(id));
+    return allItems.filter(([id]) => ["activitats", "propostes", "calendari", "espais", "temps"].includes(id));
   }
 
   if (normalizedRole === "cap_projecte") {
-    return allItems.filter(([id]) => ["activitats", "propostes", "calendari", "espais", "temps", "clipping"].includes(id));
+    return allItems.filter(([id]) => ["activitats", "propostes", "calendari", "espais", "temps"].includes(id));
   }
 
-  return allItems.filter(([id]) => ["activitats", "calendari", "espais", "temps", "clipping"].includes(id));
+  return allItems.filter(([id]) => ["activitats", "calendari", "espais", "temps"].includes(id));
 }
 
 function getDefaultViewForRole(role) {
@@ -4512,213 +4499,6 @@ function InscripcionsView({ inscripcions }) {
 }
 
 
-
-function normalizeClippingStatus(value) {
-  const text = String(value || "pendent").toLowerCase();
-
-  if (text.includes("valid")) return "validat";
-  if (text.includes("descart")) return "descartat";
-  if (text.includes("revis")) return "revisat";
-  return "pendent";
-}
-
-async function fetchAllClippingRows(table, select) {
-  if (!clippingSupabase) {
-    throw new Error("Falten les variables VITE_CLIPPING_SUPABASE_URL i VITE_CLIPPING_SUPABASE_KEY.");
-  }
-
-  const pageSize = 1000;
-  let from = 0;
-  const allRows = [];
-
-  while (true) {
-    const to = from + pageSize - 1;
-
-    const { data, error } = await clippingSupabase
-      .from(table)
-      .select(select)
-      .order("created_at", { ascending: false })
-      .range(from, to);
-
-    if (error) throw error;
-
-    allRows.push(...(data || []));
-
-    if (!data || data.length < pageSize) break;
-
-    from += pageSize;
-  }
-
-  return allRows;
-}
-
-function buildClippingSummary(reculls, impacts) {
-  const statusCounts = impacts.reduce((acc, impact) => {
-    const status = normalizeClippingStatus(impact.status);
-    acc[status] = (acc[status] || 0) + 1;
-    return acc;
-  }, {});
-
-  const mediaTypeCounts = impacts.reduce((acc, impact) => {
-    const key = impact.media_type || "Pendent de classificar";
-    acc[key] = (acc[key] || 0) + 1;
-    return acc;
-  }, {});
-
-  const mediaNameCounts = impacts.reduce((acc, impact) => {
-    const key = impact.media_name || "Pendent de revisar";
-    acc[key] = (acc[key] || 0) + 1;
-    return acc;
-  }, {});
-
-  return {
-    totalReculls: reculls.length,
-    totalImpacts: impacts.length,
-    pending: statusCounts.pendent || 0,
-    validats: statusCounts.validat || 0,
-    revisats: statusCounts.revisat || 0,
-    descartats: statusCounts.descartat || 0,
-    statusCounts,
-    mediaTypeCounts,
-    mediaNameCounts,
-    latestReculls: reculls.slice(0, 6),
-    latestImpacts: impacts.slice(0, 10),
-  };
-}
-
-function ClippingPremsaView() {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [reculls, setReculls] = useState([]);
-  const [impacts, setImpacts] = useState([]);
-
-  async function loadClippingData() {
-    setLoading(true);
-    setError("");
-
-    try {
-      const [nextReculls, nextImpacts] = await Promise.all([
-        fetchAllClippingRows(
-          "press_reculls",
-          "id, title, total_pages, status, created_at, pdf_file_url"
-        ),
-        fetchAllClippingRows(
-          "press_impacts",
-          "id, recull_id, title, media_type, media_name, status, published_at, page_image_url, created_at, importance"
-        ),
-      ]);
-
-      setReculls(nextReculls);
-      setImpacts(nextImpacts);
-    } catch (err) {
-      console.error(err);
-      setError(err.message || "No s'han pogut carregar les dades del clipping.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    loadClippingData();
-  }, []);
-
-  const summary = useMemo(() => buildClippingSummary(reculls, impacts), [reculls, impacts]);
-
-  return (
-    <>
-      <Top
-        title="Clipping / Premsa"
-        subtitle="Seguiment dels reculls i impactes de premsa importats a la plataforma de clipping."
-      >
-        <div className="dashboardTopControls">
-          <a className="externalLink" href={CLIPPING_APP_URL} target="_blank" rel="noreferrer">
-            Obrir clipping complet →
-          </a>
-          <button type="button" onClick={loadClippingData}>
-            Actualitzar
-          </button>
-        </div>
-      </Top>
-
-      {error && <div className="notice">⚠ {error}</div>}
-
-      {loading ? (
-        <div className="notice">Carregant dades del clipping...</div>
-      ) : (
-        <>
-          <div className="stats dashboardStats">
-            <KpiCard icon="PDF" tone="blue" label="Reculls" value={summary.totalReculls} />
-            <KpiCard icon="📰" tone="green" label="Impactes" value={summary.totalImpacts} />
-            <KpiCard icon="⏳" tone="yellow" label="Pendents" value={summary.pending} />
-            <KpiCard icon="✓" tone="purple" label="Validats" value={summary.validats} />
-            <KpiCard icon="×" tone="peach" label="Descartats" value={summary.descartats} />
-          </div>
-
-          <div className="dashboardChartsGrid">
-            <TypeDonut title="Estat dels impactes" data={summary.statusCounts} />
-            <TypeDonut title="Tipus de mitjà" data={summary.mediaTypeCounts} />
-            <CompactRankList title="Mitjans amb més impactes" data={summary.mediaNameCounts} icon="🗞" totalLabel="Top mitjans" />
-
-            <section className="chartCard">
-              <div className="chartCardHeader">
-                <div className="chartTitle">
-                  <span>PDF</span>
-                  <h2>Últims reculls importats</h2>
-                </div>
-                <span className="chartTotal">{summary.latestReculls.length} reculls</span>
-              </div>
-
-              <div className="miniRows">
-                {summary.latestReculls.map((recull) => (
-                  <span key={recull.id}>
-                    <strong>{recull.title || "Recull sense títol"}</strong>
-                    {" · "}
-                    {recull.total_pages || "—"} pàgines
-                    {" · "}
-                    {formatCompactDate(String(recull.created_at || "").slice(0, 10))}
-                  </span>
-                ))}
-
-                {!summary.latestReculls.length && (
-                  <div className="notice">Encara no hi ha reculls importats.</div>
-                )}
-              </div>
-            </section>
-          </div>
-
-          <section className="chartCard">
-            <div className="chartCardHeader">
-              <div className="chartTitle">
-                <span>▤</span>
-                <h2>Últims impactes detectats</h2>
-              </div>
-              <span className="chartTotal">{summary.latestImpacts.length} impactes</span>
-            </div>
-
-            <div className="miniRows">
-              {summary.latestImpacts.map((impact) => (
-                <span key={impact.id}>
-                  <strong>{impact.title || "Impacte pendent de titular"}</strong>
-                  {" · "}
-                  {normalizeClippingStatus(impact.status)}
-                  {" · "}
-                  {impact.media_name || "Pendent de revisar"}
-                </span>
-              ))}
-
-              {!summary.latestImpacts.length && (
-                <div className="notice">Encara no hi ha impactes importats.</div>
-              )}
-            </div>
-          </section>
-        </>
-      )}
-    </>
-  );
-}
-
-
-
 function LoginScreen({ userName, setUserName, role, setRole, onEnter }) {
   return (
     <div className="loginScreen">
@@ -4740,7 +4520,6 @@ function LoginScreen({ userName, setUserName, role, setRole, onEnter }) {
           {[
             ["direccio", "Direcció"],
     ["pressupost", "Pressupost"],
-    ["clipping", "Clipping / Premsa"],
             ["editor", "Editor/a"],
             ["cap_projecte", "Cap projecte"],
             ["admin", "Admin"],
@@ -6320,9 +6099,14 @@ function isParticipationChecked(value) {
 }
 
 function normalizeParticipacioRow(row) {
-  const inscrits = parseParticipationNumber(row.nombre_d_inscrits);
-  const visitants = parseParticipationNumber(row.nombre_de_visitants);
-  const aforament = parseParticipationNumber(row.aformment || row.aforment || row.aforament);
+  const inscritsRaw = row.nombre_d_inscrits;
+  const visitantsRaw = row.nombre_de_visitants;
+  const aforamentRaw = row.aformment || row.aforment || row.aforament;
+  const inscrits = parseParticipationNumber(inscritsRaw);
+  const visitants = parseParticipationNumber(visitantsRaw);
+  const aforament = parseParticipationNumber(aforamentRaw);
+  const hasVisitantsData = String(visitantsRaw ?? "").trim() !== "";
+  const hasAforamentData = String(aforamentRaw ?? "").trim() !== "";
   const propiesChecked = isParticipationChecked(row.propies);
   const einaNovaChecked = isParticipationChecked(row.eina_nova);
 
@@ -6354,6 +6138,8 @@ function normalizeParticipacioRow(row) {
     aforament,
     inscrits,
     visitants,
+    hasVisitantsData,
+    hasAforamentData,
     comentaris: String(row.comentaris || ""),
     assistencia: String(row.assistencia || ""),
     finalitzat: normalizeParticipationStatus(row.finalitzat),
@@ -6456,20 +6242,25 @@ function ParticipacioView({ rows }) {
   }, [filteredRows]);
 
   const totals = useMemo(() => {
+    const occupancyRows = inscriptionRows.filter((row) => row.hasAforamentData && row.hasVisitantsData);
     const inscrits = sumParticipation(inscriptionRows, "inscrits");
-    const visitantsAmbInscripcio = sumParticipation(inscriptionRows, "visitants");
+    const aforamentAmbDades = sumParticipation(occupancyRows, "aforament");
+    const visitantsAmbAforament = sumParticipation(occupancyRows, "visitants");
     const visitantsTotals = sumParticipation(filteredRows, "visitants");
     const activitatsAmbDades = filteredRows.filter((row) => row.inscrits || row.visitants || row.aforament).length;
     const activitatsAmbInscripcio = inscriptionRows.length;
+    const activitatsAmbOcupacio = occupancyRows.length;
 
     return {
       inscrits,
-      visitantsAmbInscripcio,
+      aforamentAmbDades,
+      visitantsAmbAforament,
       visitantsTotals,
       activitats: filteredRows.length,
       activitatsAmbDades,
       activitatsAmbInscripcio,
-      assistenciaRate: inscrits > 0 ? (visitantsAmbInscripcio / inscrits) * 100 : 0,
+      activitatsAmbOcupacio,
+      ocupacioRate: aforamentAmbDades > 0 ? (visitantsAmbAforament / aforamentAmbDades) * 100 : 0,
     };
   }, [filteredRows, inscriptionRows]);
 
@@ -6488,14 +6279,14 @@ function ParticipacioView({ rows }) {
       .slice(0, 12);
   }, [filteredRows]);
 
-  const topAssistencia = useMemo(() => {
+  const topOcupacio = useMemo(() => {
     return [...inscriptionRows]
-      .filter((row) => row.inscrits > 0)
+      .filter((row) => row.hasAforamentData && row.hasVisitantsData && row.aforament > 0)
       .map((row) => ({
         ...row,
-        assistenciaRate: (row.visitants / row.inscrits) * 100,
+        ocupacioRate: (row.visitants / row.aforament) * 100,
       }))
-      .sort((a, b) => b.assistenciaRate - a.assistenciaRate)
+      .sort((a, b) => b.ocupacioRate - a.ocupacioRate)
       .slice(0, 8);
   }, [inscriptionRows]);
 
@@ -6503,7 +6294,7 @@ function ParticipacioView({ rows }) {
     <div className="participacioView">
       <Top
         title="Participació"
-        subtitle="Lectura d'inscrits, visitants i assistència de les activitats de la Capitalitat."
+        subtitle="Lectura d'inscrits, visitants i ocupació de les activitats de la Capitalitat."
       >
         <div className="todayPill">{formatParticipationNumber(rows.length)} files carregades</div>
       </Top>
@@ -6570,15 +6361,15 @@ function ParticipacioView({ rows }) {
       </div>
 
       <div className="participacioNote">
-        <strong>Assistència:</strong> aquest percentatge només es calcula amb activitats marcades a <b>PRÒPIES</b> o <b>EINA NOVA</b>, perquè són les que tenen inscripcions.
+        <strong>Ocupació:</strong> aquest percentatge només es calcula amb activitats marcades a <b>PRÒPIES</b> o <b>EINA NOVA</b> i que tenen informats tant <b>AFORAMENT</b> com <b>NOMBRE DE VISITANTS</b>.
       </div>
 
       <div className="participacioKpis">
         <StatCard label="Inscrits totals" value={formatParticipationNumber(totals.inscrits)} hint="Només PRÒPIES / EINA NOVA" />
         <StatCard label="Visitants totals" value={formatParticipationNumber(totals.visitantsTotals)} hint="Totes les activitats filtrades" />
-        <StatCard label="Assistència" value={formatParticipationPercent(totals.assistenciaRate)} hint="Visitants / inscrits, només activitats amb inscripció" />
+        <StatCard label="Ocupació" value={formatParticipationPercent(totals.ocupacioRate)} hint="Visitants / aforament, només activitats amb dades completes" />
         <StatCard label="Activitats amb inscripció" value={formatParticipationNumber(totals.activitatsAmbInscripcio)} hint="Check a PRÒPIES o EINA NOVA" />
-        <StatCard label="Activitats amb dades" value={formatParticipationNumber(totals.activitatsAmbDades)} hint={`${formatParticipationNumber(totals.activitats)} activitats filtrades`} />
+        <StatCard label="Activitats amb ocupació" value={formatParticipationNumber(totals.activitatsAmbOcupacio)} hint={`${formatParticipationNumber(totals.activitats)} activitats filtrades`} />
       </div>
 
       <div className="participacioCharts">
@@ -6663,18 +6454,18 @@ function ParticipacioView({ rows }) {
 
         <div className="panel participacioPanel">
           <div className="sectionTitle">
-            <h3>Millor assistència</h3>
-            <span>Només activitats amb inscripció</span>
+            <h3>Millor ocupació</h3>
+            <span>Només activitats amb aforament i visitants</span>
           </div>
           <div className="participacioRanking">
-            {topAssistencia.map((row, index) => (
-              <div className="participacioRankingRow" key={`${row.idIntern}-assistencia-${index}`}>
+            {topOcupacio.map((row, index) => (
+              <div className="participacioRankingRow" key={`${row.idIntern}-ocupacio-${index}`}>
                 <b>{index + 1}</b>
                 <div>
                   <strong>{row.titol || "Sense títol"}</strong>
-                  <span>{formatParticipationNumber(row.visitants)} visitants / {formatParticipationNumber(row.inscrits)} inscrits</span>
+                  <span>{formatParticipationNumber(row.visitants)} visitants / {formatParticipationNumber(row.aforament)} aforament</span>
                 </div>
-                <em>{formatParticipationPercent(row.assistenciaRate)}</em>
+                <em>{formatParticipationPercent(row.ocupacioRate)}</em>
               </div>
             ))}
           </div>
@@ -6699,13 +6490,14 @@ function ParticipacioView({ rows }) {
                 <th>Tipus inscripció</th>
                 <th>Inscrits</th>
                 <th>Visitants</th>
-                <th>Assist.</th>
+                <th>Aforament</th>
+                <th>Ocup.</th>
                 <th>Finalitzat</th>
               </tr>
             </thead>
             <tbody>
               {filteredRows.slice(0, 350).map((row, index) => {
-                const assistenciaRate = row.teInscripcions && row.inscrits > 0 ? (row.visitants / row.inscrits) * 100 : null;
+                const ocupacioRate = row.teInscripcions && row.hasAforamentData && row.hasVisitantsData && row.aforament > 0 ? (row.visitants / row.aforament) * 100 : null;
                 const tipusInscripcio = [
                   row.propiesChecked ? "PRÒPIES" : "",
                   row.einaNovaChecked ? "EINA NOVA" : "",
@@ -6724,7 +6516,8 @@ function ParticipacioView({ rows }) {
                     <td>{tipusInscripcio}</td>
                     <td>{formatParticipationNumber(row.inscrits)}</td>
                     <td>{formatParticipationNumber(row.visitants)}</td>
-                    <td>{assistenciaRate === null ? "—" : formatParticipationPercent(assistenciaRate)}</td>
+                    <td>{row.hasAforamentData ? formatParticipationNumber(row.aforament) : "—"}</td>
+                    <td>{ocupacioRate === null ? "—" : formatParticipationPercent(ocupacioRate)}</td>
                     <td>{row.finalitzat || "—"}</td>
                   </tr>
                 );
@@ -6893,7 +6686,6 @@ function App() {
           <DataScopeControl dataScope={dataScope} setDataScope={setDataScope} rows={rows} />
         )}
         {view === "dashboard" && <DashboardView rows={scopedRows} inscripcions={inscripcions} />}
-        {view === "clipping" && <ClippingPremsaView />}
         {view === "temps" && <TempsCapitalitatView rows={scopedRows} inscripcions={inscripcions} apiSpaces={apiSpaces} />}
         {view === "pressupost" && canSeeView(role, "direccio") && <BudgetView activityRows={rows} />}
         {view === "pressupost" && !canSeeView(role, "direccio") && (
